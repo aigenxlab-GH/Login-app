@@ -1,69 +1,106 @@
 package com.aigenxlab.loginapp.auth;
 
 import com.aigenxlab.loginapp.auth.dto.ChangePasswordRequest;
+import com.aigenxlab.loginapp.auth.dto.LoginRequest;
 import com.aigenxlab.loginapp.auth.dto.SignupRequest;
+import com.aigenxlab.loginapp.auth.dto.UserResponse;
+import com.aigenxlab.loginapp.config.AuthProperties;
+import com.aigenxlab.loginapp.error.AppException;
+import com.aigenxlab.loginapp.session.AppSession;
+import com.aigenxlab.loginapp.session.SessionRepository;
 import com.aigenxlab.loginapp.user.User;
 import com.aigenxlab.loginapp.user.UserRepository;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Service
 public class AuthService {
 
     private final UserRepository users;
-    private final PasswordEncoder encoder;
+    private final SessionRepository sessions;
+    private final PasswordService passwordService;
+    private final AuthProperties props;
 
-    public AuthService(UserRepository users, PasswordEncoder encoder) {
+    public AuthService(UserRepository users,
+                       SessionRepository sessions,
+                       PasswordService passwordService,
+                       AuthProperties props) {
         this.users = users;
-        this.encoder = encoder;
+        this.sessions = sessions;
+        this.passwordService = passwordService;
+        this.props = props;
     }
 
-    @Transactional
-    public User signup(SignupRequest req) {
+    public record LoginResult(UserResponse user, String sessionToken) {}
+
+    public LoginResult login(LoginRequest req, String ipAddress, String userAgent) {
+        User user = users.findByEmail(req.email().trim().toLowerCase())
+                .orElseThrow(AppException::invalidCredentials);
+
+        if (user.isLocked()) {
+            throw AppException.accountLocked();
+        }
+
+        if (!passwordService.verify(req.password(), user.getPasswordHash())) {
+            int newCount = user.getFailedLoginAttempts() + 1;
+            int max = props.getLockout().getMaxFailedAttempts();
+            if (newCount >= max) {
+                OffsetDateTime lockUntil = OffsetDateTime.now()
+                        .plusMinutes(props.getLockout().getLockoutMinutes());
+                users.incrementFailedAttempts(user.getId(), lockUntil);
+            } else {
+                users.incrementFailedAttempts(user.getId(), null);
+            }
+            throw AppException.invalidCredentials();
+        }
+
+        users.resetFailedAttempts(user.getId());
+
+        String token = UUID.randomUUID().toString();
+        AppSession session = sessions.create(user.getId(), token, ipAddress, userAgent);
+
+        return new LoginResult(UserResponse.from(user), session.getSessionToken());
+    }
+
+    public UserResponse signup(SignupRequest req) {
         if (!req.password().equals(req.confirmPassword())) {
-            throw new ValidationException("confirmPassword", "Passwords do not match");
+            throw AppException.passwordMismatch();
         }
-        if (users.existsByEmailIgnoreCase(req.email())) {
-            throw new ValidationException("email", "An account with this email already exists");
+        if (users.existsByEmail(req.email().trim().toLowerCase())) {
+            throw AppException.emailAlreadyExists();
         }
-        User u = new User(
+        String hash = passwordService.hash(req.password());
+        User user = users.insert(
                 req.name().trim(),
                 req.email().trim().toLowerCase(),
-                encoder.encode(req.password()),
+                hash,
                 req.address().trim(),
                 req.designation().trim()
         );
-        return users.save(u);
+        return UserResponse.from(user);
     }
 
-    @Transactional
     public void changePassword(ChangePasswordRequest req) {
         if (!req.newPassword().equals(req.confirmNewPassword())) {
-            throw new ValidationException("confirmNewPassword", "Passwords do not match");
+            throw AppException.passwordMismatch();
         }
-        User u = users.findByEmailIgnoreCase(req.email())
-                .orElseThrow(() -> new InvalidCredentialsException("Email or old password is incorrect"));
-        if (!encoder.matches(req.oldPassword(), u.getPasswordHash())) {
-            throw new InvalidCredentialsException("Email or old password is incorrect");
+        User user = users.findByEmail(req.email().trim().toLowerCase())
+                .orElseThrow(AppException::invalidCredentials);
+
+        if (!passwordService.verify(req.oldPassword(), user.getPasswordHash())) {
+            throw AppException.oldPasswordInvalid();
         }
-        u.changePassword(encoder.encode(req.newPassword()));
+
+        String newHash = passwordService.hash(req.newPassword());
+        users.updatePassword(user.getId(), newHash);
+        sessions.revokeAllByUserId(user.getId());
     }
 
-    public static class ValidationException extends RuntimeException {
-        private final String field;
-
-        public ValidationException(String field, String message) {
-            super(message);
-            this.field = field;
-        }
-
-        public String field() { return field; }
-    }
-
-    public static class InvalidCredentialsException extends RuntimeException {
-        public InvalidCredentialsException(String message) {
-            super(message);
-        }
+    public UserResponse getMe(UUID userId) {
+        return users.findById(userId)
+                .map(UserResponse::from)
+                .orElseThrow(AppException::invalidCredentials);
     }
 }

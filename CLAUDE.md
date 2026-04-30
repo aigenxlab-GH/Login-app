@@ -172,8 +172,11 @@ frontend/dist/
 
 1. Create `frontend/src/pages/NewPage.tsx`
 2. Add `<Route path="/new-path" element={<NewPage />} />` in `App.tsx`
-3. `SpaForwardingConfig` handles server-side forwarding automatically
-   (no changes needed as long as the path has no dot in it)
+3. **Add the path to `SpaFallbackController.java`** — this step is mandatory.
+   The controller lists every SPA route explicitly so that hard-refreshing a
+   deep-link returns `index.html` instead of a 404. A catch-all regex is
+   intentionally NOT used because it would intercept `/swagger-ui` and
+   `/actuator` before their own handlers run.
 4. Add API endpoint(s) in `AuthController` or a new `@RestController`
 5. Add Flyway migration if schema changes (new `V{n}__...sql`)
 6. Add or update `@SpringBootTest` integration test

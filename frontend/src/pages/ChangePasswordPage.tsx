@@ -1,6 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError, authApi } from '../api/client';
+import { ApiError } from '../api/client';
+import { changePassword } from '../api/auth';
+import { PageShell } from '../components/PageShell';
 
 interface FormState {
   email: string;
@@ -23,36 +25,57 @@ export function ChangePasswordPage() {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  function update<K extends keyof FormState>(k: K, v: string) {
-    setForm((f) => ({ ...f, [k]: v }));
+  function update<K extends keyof FormState>(key: K, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setGeneralError(null);
+
     const local: Record<string, string> = {};
-    if (form.newPassword !== form.confirmNewPassword) {
-      local.confirmNewPassword = 'Passwords do not match';
+
+    // Empty field checks
+    if (!form.email.trim()) local.email = 'Required';
+    if (!form.oldPassword) local.oldPassword = 'Required';
+    if (!form.newPassword) local.newPassword = 'Required';
+    if (!form.confirmNewPassword) local.confirmNewPassword = 'Required';
+
+    const fieldLabels: Record<string, string> = {
+      email: 'Email',
+      oldPassword: 'Old Password',
+      newPassword: 'New Password',
+      confirmNewPassword: 'Confirm New Password',
+    };
+    const missing = Object.keys(local).map((k) => fieldLabels[k]);
+    if (missing.length > 0) {
+      setFieldErrors(local);
+      setGeneralError(`Please fill the ${missing.join(', ')}.`);
+      return;
     }
+
+    // Business rule checks
     if (form.newPassword.length < 8) {
-      local.newPassword = 'Password must be at least 8 characters';
+      local.newPassword = 'New password must be at least 8 characters.';
+    }
+    if (form.newPassword !== form.confirmNewPassword) {
+      local.confirmNewPassword = 'Passwords do not match.';
     }
     if (Object.keys(local).length > 0) {
       setFieldErrors(local);
       return;
     }
+
     setFieldErrors({});
     setSubmitting(true);
     try {
-      await authApi.changePassword(form);
+      await changePassword(form);
       navigate('/?msg=' + encodeURIComponent('Password successfully changed'));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setGeneralError('Email or old password is incorrect');
-      } else if (err instanceof ApiError && err.body?.fieldErrors) {
-        setFieldErrors(err.body.fieldErrors);
+      if (err instanceof ApiError && err.body?.details) {
+        setFieldErrors(err.body.details);
       } else if (err instanceof ApiError) {
-        setGeneralError(err.body?.message || 'Could not change password');
+        setGeneralError(err.body?.message ?? 'Could not change password. Please try again.');
       } else {
         setGeneralError('Something went wrong. Please try again.');
       }
@@ -62,34 +85,54 @@ export function ChangePasswordPage() {
   }
 
   return (
-    <div className="mx-auto my-12 max-w-lg px-6">
-      <h1 className="mb-6 text-3xl font-bold text-slate-900">Change password</h1>
-      <form onSubmit={onSubmit} className="space-y-4 rounded-lg bg-white p-6 shadow" noValidate>
-        <Field label="Email" type="email" value={form.email} onChange={(v) => update('email', v)} error={fieldErrors.email} required />
-        <Field label="Old Password" type="password" value={form.oldPassword} onChange={(v) => update('oldPassword', v)} error={fieldErrors.oldPassword} required />
-        <Field label="New Password" type="password" value={form.newPassword} onChange={(v) => update('newPassword', v)} error={fieldErrors.newPassword} required />
-        <Field label="Confirm New Password" type="password" value={form.confirmNewPassword} onChange={(v) => update('confirmNewPassword', v)} error={fieldErrors.confirmNewPassword} required />
+    <PageShell>
+      <div className="mx-auto max-w-md">
+        <div className="mb-6 text-center">
+          <h1 className="text-3xl font-bold tracking-tight text-[#1a2e52]">Change password</h1>
+          <p className="mt-2 text-sm text-white/80">Update your account password</p>
+        </div>
 
-        {generalError && <p className="text-sm text-red-600">{generalError}</p>}
+        <form
+          onSubmit={onSubmit}
+          noValidate
+          className="rounded-3xl bg-white/30 p-8 shadow-xl backdrop-blur-md ring-1 ring-white/50"
+        >
+          <div className="space-y-5">
+            <Field label="Email" type="email" value={form.email} onChange={(v) => update('email', v)}
+              error={fieldErrors.email} autoComplete="email" required />
+            <Field label="Old Password" type="password" value={form.oldPassword}
+              onChange={(v) => update('oldPassword', v)} error={fieldErrors.oldPassword}
+              autoComplete="current-password" required />
+            <Field label="New Password" type="password" value={form.newPassword}
+              onChange={(v) => update('newPassword', v)} error={fieldErrors.newPassword}
+              autoComplete="new-password" required />
+            <Field label="Confirm New Password" type="password" value={form.confirmNewPassword}
+              onChange={(v) => update('confirmNewPassword', v)} error={fieldErrors.confirmNewPassword}
+              autoComplete="new-password" required />
+          </div>
 
-        <div className="flex items-center justify-between pt-2">
-          <button
-            type="button"
-            className="text-sm text-slate-700 underline hover:text-slate-900"
-            onClick={() => navigate('/')}
-          >
-            Back to login
-          </button>
+          {generalError && (
+            <p role="alert" className="mt-5 rounded-xl bg-red-100/80 px-4 py-2 text-center text-xs text-red-700">
+              {generalError}
+            </p>
+          )}
+
           <button
             type="submit"
             disabled={submitting}
-            className="rounded bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-50"
+            className="mt-6 w-full rounded-full bg-[#1a2e52] py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#223568] disabled:opacity-60"
           >
             {submitting ? 'Saving…' : 'Change Password'}
           </button>
-        </div>
-      </form>
-    </div>
+
+          <p className="mt-5 border-t border-white/30 pt-5 text-center text-sm text-[#1a2e52]">
+            <button type="button" className="font-semibold hover:underline" onClick={() => navigate('/')}>
+              Back to sign in
+            </button>
+          </p>
+        </form>
+      </div>
+    </PageShell>
   );
 }
 
@@ -99,25 +142,26 @@ interface FieldProps {
   onChange: (v: string) => void;
   type?: string;
   error?: string;
+  autoComplete?: string;
   required?: boolean;
 }
 
-function Field({ label, value, onChange, type = 'text', error, required }: FieldProps) {
+function Field({ label, value, onChange, type = 'text', error, autoComplete, required }: FieldProps) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
+      <span className="mb-1.5 block text-sm font-medium text-[#1a2e52]">
+        {label} {required && <span className="text-red-300">*</span>}
+      </span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        required={required}
-        className={`w-full rounded border px-3 py-2 focus:outline-none focus:ring-1 ${
-          error
-            ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
-            : 'border-slate-300 focus:border-slate-500 focus:ring-slate-500'
+        autoComplete={autoComplete}
+        className={`w-full rounded-full border-0 bg-white/80 px-5 py-2.5 text-sm text-slate-700 placeholder-slate-400 shadow-inner outline-none focus:ring-2 ${
+          error ? 'ring-2 ring-red-400' : 'focus:ring-white/70'
         }`}
       />
-      {error && <span className="mt-1 block text-xs text-red-600">{error}</span>}
+      {error && <span className="mt-1 block text-xs text-red-200">{error}</span>}
     </label>
   );
 }

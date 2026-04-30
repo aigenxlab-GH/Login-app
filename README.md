@@ -10,7 +10,7 @@ flow. One executable JAR serves the Spring Boot REST API and the React UI.
 | Layer | Technology |
 |---|---|
 | Backend | Spring Boot 3.3.x · Java 21 · Maven |
-| Security | Spring Security 6 · BCrypt · server-side HttpSession |
+| Security | Spring Security 6 · Argon2id + pepper · custom DB sessions |
 | Database | Supabase Postgres (JDBC + Flyway) |
 | Frontend | React 18 · Vite 5 · TypeScript · Tailwind CSS 3 |
 | Routing | react-router-dom v6 |
@@ -23,21 +23,21 @@ flow. One executable JAR serves the Spring Boot REST API and the React UI.
 ┌────────────────── login-app.jar (single deployable) ──────────────────┐
 │                                                                        │
 │  Spring Boot                                                           │
-│  ├── /api/**       REST controllers (auth, users)                      │
+│  ├── /api/**       REST controllers (auth)                             │
 │  └── /**           Static handler → React SPA (index.html + assets)   │
-│                    SpaForwardingConfig → forward:/index.html           │
-│                    for unmatched paths (enables React Router refresh)  │
+│                    SpaFallbackController → forward:/index.html         │
+│                    for /home, /signup, /change-password deep-links     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Build pipeline** (`./mvnw clean package` inside `backend/`):
+**Build pipeline** (`.\mvnw.cmd clean package` inside `backend\`):
 
-1. `frontend-maven-plugin` installs Node 20 LTS locally, runs `npm ci` then
-   `npm run build`.
-2. Vite writes its output to `backend/src/main/resources/static/`.
-3. Maven packages everything into `backend/target/login-app.jar`.
-4. `java -jar backend/target/login-app.jar` serves UI at `/` and API at
-   `/api/**` — same origin, no CORS.
+1. `maven-clean-plugin` wipes `backend\src\main\resources\static\` (removes stale hashed assets).
+2. `frontend-maven-plugin` runs `npm install` then `npm run build` (uses system Node).
+3. Vite writes output to `frontend\dist\`.
+4. `maven-resources-plugin` copies `frontend\dist\` → `src\main\resources\static\`.
+5. Spring Boot repackages everything into `backend\target\login-app.jar`.
+6. `java -jar backend\target\login-app.jar` serves UI at `/` and API at `/api/**` — same origin, no CORS.
 
 **Frontend API calls**: always relative `/api/...` paths — never a hardcoded
 hostname. Vite's dev-mode proxy handles the difference transparently.
@@ -63,7 +63,7 @@ login-app/
 │   │   ├── pages/            LoginPage, HomePage, SignupPage, ChangePasswordPage
 │   │   ├── components/       ProtectedRoute, Banner
 │   │   └── api/client.ts     Fetch wrapper (relative /api paths only)
-│   └── vite.config.ts        outDir → ../backend/src/main/resources/static
+│   └── vite.config.ts        outDir → dist (Maven copies to static/)
 ├── supabase/
 │   ├── migrations/           Mirror of Flyway SQL (for Supabase CLI)
 │   └── seed/                 Local dev seed data
@@ -80,121 +80,83 @@ login-app/
 
 ## Prerequisites
 
-| Tool | Version | Notes |
+| Tool | Version | Check |
 |---|---|---|
-| Java | 21 | `java --version` |
-| Node.js | 20 LTS | Only needed for `npm run dev`. Maven wrapper installs Node locally for builds. |
-| npm | 10+ | Comes with Node 20 |
-| Maven | any | Optional — `mvnw` wrapper included |
+| Java | 17+ (LTS) | `java -version` |
+| Node.js | 18+ (20 LTS recommended) | `node --version` |
+| npm | 9+ | `npm --version` |
+
+Maven is not required — the `mvnw.cmd` wrapper is included.
 
 ---
 
 ## Environment Setup
 
-Copy `.env.example` and fill in your Supabase connection details:
-
-```bash
-cp .env.example .env   # never commit .env
+```powershell
+Copy-Item .env.example .env   # never commit .env
+# edit .env with your Supabase credentials
 ```
 
-Get the JDBC URL from: **Supabase Dashboard → Project → Settings → Database →
-Connection string → URI tab → JDBC format**.
-
-The minimum required env vars:
+Required variables (see `.env.example` for all options):
 
 ```
-DATABASE_URL=jdbc:postgresql://<host>:<port>/<db>?sslmode=require
+DATABASE_URL=jdbc:postgresql://<host>:6543/postgres?sslmode=require
 DATABASE_USERNAME=postgres.<project-ref>
 DATABASE_PASSWORD=<your-db-password>
+AUTH_PASSWORD_PEPPER=<long-random-string>
 ```
+
+Get the JDBC URL from:
+**Supabase Dashboard → Project → Settings → Database → Connection string → JDBC**
 
 ---
 
 ## Database Setup (first time)
 
-Flyway runs automatically on startup. It applies
-`backend/src/main/resources/db/migration/V1__init.sql` which creates the
-`app_user` table.
-
-If you are using the Supabase CLI:
-
-```bash
-cd supabase
-supabase db push   # applies migrations in supabase/migrations/
-```
+Flyway runs automatically on startup and applies all migrations in
+`backend/src/main/resources/db/migration/`.
 
 ---
 
-## Local Dev Mode
+## Running Locally
 
-Two terminals — hot reload on both sides:
+### Dev Mode (hot reload)
 
-```bash
-# Terminal 1 — Spring Boot on :8080
-cd backend
-./mvnw spring-boot:run \
-  -Dspring-boot.run.jvmArguments="-DDATABASE_URL=jdbc:postgresql://... -DDATABASE_USERNAME=... -DDATABASE_PASSWORD=..."
-
-# Terminal 2 — Vite dev server on :5173 (proxies /api/** → :8080)
-cd frontend
-npm install          # first time only
-npm run dev
-```
-
-Open **http://localhost:5173**.
-
-On Windows (PowerShell) set env vars before the Spring Boot command:
+Two processes, two ports. React changes reflect immediately; Spring Boot changes
+require a restart.
 
 ```powershell
-$env:DATABASE_URL      = 'jdbc:postgresql://...'
-$env:DATABASE_USERNAME = 'postgres.<ref>'
-$env:DATABASE_PASSWORD = '<password>'
-cd backend
-.\mvnw.cmd spring-boot:run
+.\scripts\run-dev.ps1
 ```
 
----
+Opens: **http://localhost:5173** (Vite, proxies `/api` → Spring Boot on :8080)
 
-## Prod-Mode Local Test
+Ctrl+C stops both processes. See [`docs/LOCAL_RUN.md`](docs/LOCAL_RUN.md) for
+log watching, status checks, and manual alternatives.
 
-The canonical way to verify the production-style single-JAR build locally:
+### Prod-Mode Local Test (single JAR)
 
-```bash
-# PowerShell
-$env:DATABASE_URL      = 'jdbc:postgresql://...'
-$env:DATABASE_USERNAME = 'postgres.<ref>'
-$env:DATABASE_PASSWORD = '<password>'
+One process, one port — identical to what runs in production.
 
-cd backend
-.\mvnw.cmd clean package   # ~3–5 min first time (downloads Node, dependencies)
-java -jar target\login-app.jar
+```powershell
+.\scripts\run-prod-local.ps1
 ```
 
-Open **http://localhost:8080** — the React UI and the REST API are served from
-the same origin, exactly as they would be in production.
+Opens: **http://localhost:8080**
 
-```bash
-# bash / macOS / Linux
-export DATABASE_URL='jdbc:postgresql://...'
-export DATABASE_USERNAME='postgres.<ref>'
-export DATABASE_PASSWORD='<password>'
-
-cd backend
-./mvnw clean package
-java -jar target/login-app.jar
-```
+Maven builds the React app, bundles it into the Spring Boot JAR, and starts it.
+The UI and API are served from the same origin with no Vite proxy.
 
 ---
 
 ## Running Tests
 
-```bash
+```powershell
 cd backend
-./mvnw test        # runs @SpringBootTest + MockMvc against in-memory H2
+.\mvnw.cmd test        # Mockito unit tests — no database required
 ```
 
-Tests run with profile `test` which disables Flyway and uses H2 with
-`ddl-auto: create-drop`. No Supabase connection required.
+---
 
 ---
 
@@ -213,30 +175,23 @@ Tests run with profile `test` which disables Flyway and uses H2 with
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/auth/login` | public | Authenticates, sets JSESSIONID cookie |
+| POST | `/api/auth/login` | public | Authenticates, sets `SESSION` cookie |
 | POST | `/api/auth/signup` | public | Creates account |
 | GET | `/api/auth/me` | session | Returns current user |
-| POST | `/api/auth/logout` | session | Invalidates session |
-| POST | `/api/auth/change-password` | public | Changes password (verifies old pw) |
+| POST | `/api/auth/logout` | session | Revokes session, clears cookie |
+| POST | `/api/auth/change-password` | public | Changes password, revokes all sessions |
 
 ---
 
 ## Security Notes
 
-- Passwords are stored as BCrypt hashes — never in plain text.
-- The JSESSIONID session cookie is `HttpOnly` (not accessible to JavaScript)
-  and `SameSite=Lax` (sent on same-site navigations, blocks most CSRF vectors).
-- Set `COOKIE_SECURE=true` in production (served over HTTPS) to add the
-  `Secure` cookie flag.
-- CSRF protection is intentionally disabled: same-origin SPA, JSON-only API,
-  `SameSite=Lax` cookie. If you add cross-origin clients, re-enable CSRF.
-- `/api/auth/me` and `/api/auth/logout` require an active session; all other
-  `/api/**` paths do too. Public endpoints are explicitly allowed in
-  `SecurityConfig`.
-- Database credentials are passed only via environment variables — never
-  hardcoded, never in version control.
-- Supabase connection strings include `?sslmode=require` — enforced in
-  `.env.example`.
+- Passwords hashed with **Argon2id** (3 iterations, 64 MB, parallelism 1) plus a server-side pepper (`AUTH_PASSWORD_PEPPER`). A leaked database alone cannot be cracked offline without the pepper.
+- Sessions stored in the `app_sessions` DB table. The `SESSION` cookie is `HttpOnly`, `SameSite=Lax`. Idle sessions expire after 30 minutes.
+- The `Secure` cookie flag is automatically set when the active Spring profile is **not** `local` — no env var required.
+- CSRF is disabled: same-origin SPA, JSON-only API, `SameSite=Lax` cookie.
+- Account lockout: after configurable failed login attempts (`AUTH_MAX_FAILED_ATTEMPTS`, default 5), the account locks for `AUTH_LOCKOUT_MINUTES` (default 15).
+- All secrets (DB password, pepper) are supplied only via environment variables — never hardcoded or committed.
+- Supabase connection strings include `?sslmode=require` — enforced in `.env.example`.
 
 ---
 

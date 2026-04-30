@@ -1,57 +1,26 @@
 package com.aigenxlab.loginapp.user;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-@Entity
-@Table(name = "app_user")
+/** Domain model — plain Java, no JPA. Mapped from app_users via JDBC RowMapper. */
 public class User {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-
-    @Column(nullable = false)
     private String name;
-
-    @Column(nullable = false, unique = true)
     private String email;
-
-    @Column(name = "password_hash", nullable = false)
     private String passwordHash;
-
-    @Column(nullable = false)
     private String address;
-
-    @Column(nullable = false)
     private String designation;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
+    private OffsetDateTime passwordUpdatedAt;
+    private int failedLoginAttempts;
+    private OffsetDateTime lockedUntil;
     private OffsetDateTime createdAt;
-
-    @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    protected User() {
-    }
+    public User() {}
 
-    public User(String name, String email, String passwordHash, String address, String designation) {
-        this.name = name;
-        this.email = email;
-        this.passwordHash = passwordHash;
-        this.address = address;
-        this.designation = designation;
-        OffsetDateTime now = OffsetDateTime.now();
-        this.createdAt = now;
-        this.updatedAt = now;
-    }
+    // ── Getters ───────────────────────────────────────────────────────────────
 
     public UUID getId() { return id; }
     public String getName() { return name; }
@@ -59,15 +28,29 @@ public class User {
     public String getPasswordHash() { return passwordHash; }
     public String getAddress() { return address; }
     public String getDesignation() { return designation; }
+    public OffsetDateTime getPasswordUpdatedAt() { return passwordUpdatedAt; }
+    public int getFailedLoginAttempts() { return failedLoginAttempts; }
+    public OffsetDateTime getLockedUntil() { return lockedUntil; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 
+    // ── Setters (used by RowMapper) ───────────────────────────────────────────
+
+    public void setId(UUID id) { this.id = id; }
     public void setName(String name) { this.name = name; }
+    public void setEmail(String email) { this.email = email; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public void setAddress(String address) { this.address = address; }
     public void setDesignation(String designation) { this.designation = designation; }
+    public void setPasswordUpdatedAt(OffsetDateTime passwordUpdatedAt) { this.passwordUpdatedAt = passwordUpdatedAt; }
+    public void setFailedLoginAttempts(int failedLoginAttempts) { this.failedLoginAttempts = failedLoginAttempts; }
+    public void setLockedUntil(OffsetDateTime lockedUntil) { this.lockedUntil = lockedUntil; }
+    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
+    public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
 
-    public void changePassword(String newPasswordHash) {
-        this.passwordHash = newPasswordHash;
-        this.updatedAt = OffsetDateTime.now();
+    // ── Domain helpers ────────────────────────────────────────────────────────
+
+    public boolean isLocked() {
+        return lockedUntil != null && OffsetDateTime.now().isBefore(lockedUntil);
     }
 }

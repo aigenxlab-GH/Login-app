@@ -19,36 +19,60 @@
     <description>Production-style single-jar Spring Boot + React login app</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>17</java.version>
         <frontend.dir>${project.basedir}/../frontend</frontend.dir>
-        <node.version>v20.18.0</node.version>
-        <npm.version>10.8.2</npm.version>
+        <!-- springdoc 2.x supports Spring Boot 3.x -->
+        <springdoc.version>2.6.0</springdoc.version>
+        <!-- Argon2 password hashing via argon2-jvm (bundles native libs) -->
+        <argon2.version>2.11</argon2.version>
     </properties>
 
     <dependencies>
+        <!-- ── Web & REST ──────────────────────────────────────────────────── -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+
+        <!-- ── Security (filter chain only — no form login, no basic auth) ── -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+
+        <!-- ── JDBC (no JPA / Hibernate) ──────────────────────────────────── -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
+
+        <!-- ── Input validation ───────────────────────────────────────────── -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- ── Actuator (/actuator/health) ────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- ── OpenAPI / Swagger UI (/swagger-ui, /v3/api-docs) ───────────── -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- ── Postgres driver ────────────────────────────────────────────── -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
 
+        <!-- ── Flyway (SQL migrations) ────────────────────────────────────── -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -58,74 +82,109 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!-- ── Argon2id password hashing (bundles native libs for Win/Linux/Mac) -->
+        <dependency>
+            <groupId>de.mkammerer</groupId>
+            <artifactId>argon2-jvm</artifactId>
+            <version>${argon2.version}</version>
+        </dependency>
+
+        <!-- ── Test ───────────────────────────────────────────────────────── -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-test</artifactId>
-            <scope>test</scope>
+            <!-- spring-boot-starter-test already includes mockito-core -->
         </dependency>
     </dependencies>
 
     <build>
         <finalName>login-app</finalName>
         <plugins>
+
+            <!-- ── 0. Extend 'clean' to also wipe the generated static dir ─────── -->
+            <!--     Without this, old hashed JS/CSS filenames accumulate across    -->
+            <!--     builds because maven-resources-plugin only overwrites, never   -->
+            <!--     deletes.  Adding the directory here means `mvn clean package`  -->
+            <!--     always produces a JAR with exactly one set of SPA assets.      -->
             <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>${project.basedir}/src/main/resources/static</directory>
+                            <includes><include>**/*</include></includes>
+                            <followSymlinks>false</followSymlinks>
+                        </fileset>
+                    </filesets>
+                </configuration>
             </plugin>
 
+            <!-- ── 1. Build React frontend (Node pre-installed on build host) ─ -->
+            <!--     Assumes node + npm are on PATH.  Does NOT download Node.    -->
             <plugin>
                 <groupId>com.github.eirslett</groupId>
                 <artifactId>frontend-maven-plugin</artifactId>
                 <version>1.15.0</version>
                 <configuration>
                     <workingDirectory>${frontend.dir}</workingDirectory>
-                    <installDirectory>${frontend.dir}</installDirectory>
+                    <!-- No <installDirectory>: plugin uses system PATH node/npm -->
                 </configuration>
                 <executions>
                     <execution>
-                        <id>install-node-and-npm</id>
-                        <goals>
-                            <goal>install-node-and-npm</goal>
-                        </goals>
-                        <phase>generate-resources</phase>
-                        <configuration>
-                            <nodeVersion>${node.version}</nodeVersion>
-                            <npmVersion>${npm.version}</npmVersion>
-                        </configuration>
-                    </execution>
-                    <execution>
                         <id>npm-install</id>
-                        <goals>
-                            <goal>npm</goal>
-                        </goals>
+                        <goals><goal>npm</goal></goals>
                         <phase>generate-resources</phase>
-                        <configuration>
-                            <arguments>ci</arguments>
-                        </configuration>
+                        <configuration><arguments>install</arguments></configuration>
                     </execution>
                     <execution>
                         <id>npm-build</id>
-                        <goals>
-                            <goal>npm</goal>
-                        </goals>
+                        <goals><goal>npm</goal></goals>
                         <phase>generate-resources</phase>
+                        <configuration><arguments>run build</arguments></configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ── 2. Copy frontend/dist → src/main/resources/static ────────── -->
+            <!--     Runs at generate-resources (after the npm build above)      -->
+            <!--     so that process-resources picks up the files into the JAR.  -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-frontend-build</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>copy-resources</goal></goals>
                         <configuration>
-                            <arguments>run build</arguments>
+                            <outputDirectory>
+                                ${project.basedir}/src/main/resources/static
+                            </outputDirectory>
+                            <overwrite>true</overwrite>
+                            <resources>
+                                <resource>
+                                    <directory>${frontend.dir}/dist</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- ── 3. Package fat JAR (spring-boot:repackage) ──────────────── -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
         </plugins>
     </build>
 

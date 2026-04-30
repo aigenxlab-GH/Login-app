@@ -42,6 +42,10 @@ desktop.ini
 *.p12
 *.jks
 
+# --- Scripts runtime state (PIDs, logs) ---
+scripts/.pids/
+scripts/logs/
+
 # --- Build logs ---
 *.log
 

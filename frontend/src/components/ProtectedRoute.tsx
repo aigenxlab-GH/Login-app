@@ -1,20 +1,20 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError, ApiUser, authApi } from '../api/client';
+import { ApiError } from '../api/client';
+import { User, getMe } from '../api/auth';
 
 interface Props {
-  children: (user: ApiUser) => ReactNode;
+  children: (user: User) => ReactNode;
 }
 
 export function ProtectedRoute({ children }: Props) {
   const navigate = useNavigate();
-  const [user, setUser] = useState<ApiUser | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    authApi
-      .me()
+    getMe()
       .then((u) => {
         if (!cancelled) {
           setUser(u);
@@ -36,8 +36,8 @@ export function ProtectedRoute({ children }: Props) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-slate-500">
-        Loading…
+      <div className="flex min-h-screen items-center justify-center text-slate-400">
+        <span className="text-sm">Loading…</span>
       </div>
     );
   }
