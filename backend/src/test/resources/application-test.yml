@@ -1,0 +1,20 @@
+# Test profile: H2 in-memory in PostgreSQL compatibility mode.
+# Hibernate creates the schema; Flyway is disabled because V1__init.sql uses
+# Postgres-specific extensions (pgcrypto / gen_random_uuid()) that H2 doesn't
+# implement. The Hibernate-managed schema is functionally equivalent for the
+# repository/controller smoke tests.
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:loginapp;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false

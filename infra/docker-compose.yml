@@ -1,0 +1,44 @@
+# docker-compose.yml — local production-mode smoke test
+#
+# Builds the single-jar from source and runs it against a local Postgres.
+# This validates the full prod-mode pipeline without needing Supabase.
+#
+# Usage:
+#   docker compose up --build
+#   open http://localhost:8080
+#
+# Requires Docker Desktop. The first build is slow (~5 min) because it
+# downloads Maven dependencies and Node modules inside the build stage.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: loginapp
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppassword
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d loginapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/loginapp
+      DATABASE_USERNAME: appuser
+      DATABASE_PASSWORD: apppassword
+      COOKIE_SECURE: "false"
+      PORT: "8080"

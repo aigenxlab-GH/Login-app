@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java --version)",
+      "Bash(mvn --version)",
+      "Bash(npm --version)",
+      "PowerShell($results = @\\(\\); foreach \\($cmd in 'java','mvn','node','npm'\\) { $c = Get-Command $cmd -ErrorAction SilentlyContinue; if \\($c\\) { $results += \"$cmd : $\\($c.Source\\)\" } else { $results += \"$cmd : NOT FOUND\" } }; $results -join \"`n\")",
+      "PowerShell($ErrorActionPreference='Stop'; $mvn=\"$env:USERPROFILE\\\\.tools\\\\apache-maven-3.9.15\\\\bin\\\\mvn.cmd\"; Set-Location \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\backend\"; & $mvn -N wrapper:wrapper \"-Dmaven=3.9.15\")",
+      "PowerShell($ErrorActionPreference='Stop'; Set-Location \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\frontend\"; $env:Path = \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\frontend\\\\node;\" + $env:Path; & \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\frontend\\\\node\\\\node.exe\" \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\frontend\\\\node\\\\node_modules\\\\npm\\\\bin\\\\npm-cli.js\" install --package-lock-only 2>&1 | Select-Object -Last 30)",
+      "PowerShell(Set-Location \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\backend\"; & .\\\\mvnw.cmd clean package -B -q 2>$null > \"C:\\\\Users\\\\Admin\\\\.tools\\\\mvnw-stdout.log\"; Write-Output \"ExitCode=$LASTEXITCODE\")"
+    ]
+  }
+}

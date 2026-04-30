@@ -1,0 +1,55 @@
+# =============================================================================
+# Production-style configuration for the Login App single-jar.
+#
+# To run locally in prod-mode you need a Postgres database. The expected setup
+# is Supabase Postgres -- get the JDBC URL from:
+#   Supabase Dashboard -> Project -> Settings -> Database -> Connection string
+#   -> "URI" tab -> "JDBC" format. Replace the password placeholder.
+#
+# Example DATABASE_URL:
+#   jdbc:postgresql://aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require
+#
+# Pass these as env vars before running `java -jar`:
+#   PowerShell:  $env:DATABASE_URL='jdbc:postgresql://...'; ...; java -jar target/login-app.jar
+#   bash:        DATABASE_URL='jdbc:postgresql://...' DATABASE_USERNAME=... DATABASE_PASSWORD=... java -jar target/login-app.jar
+# =============================================================================
+
+spring:
+  application:
+    name: login-app
+
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        same-site: lax
+        # COOKIE_SECURE must be true in production (HTTPS). Leave false locally over plain HTTP.
+        secure: ${COOKIE_SECURE:false}
+
+logging:
+  level:
+    root: INFO
+    com.aigenxlab.loginapp: INFO
+    org.springframework.security: INFO
