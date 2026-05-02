@@ -39,7 +39,10 @@ spring:
         period: 31536000
 
 server:
-  port: ${PORT:8080}
+  # Local default 8085 (matches .env and docs).
+  # On Railway / Render / Heroku the platform sets $PORT to a random value
+  # at runtime — this placeholder honors that.
+  port: ${PORT:8085}
 
 management:
   endpoints:

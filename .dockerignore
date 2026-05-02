@@ -1,0 +1,46 @@
+# =============================================================================
+# Files NOT to send to the Docker build context.
+# Keeping this list tight makes builds dramatically faster (no 200 MB
+# node_modules tarball uploaded to the daemon) and prevents secret leaks.
+# =============================================================================
+
+# Build outputs (regenerated inside the image)
+backend/target/
+backend/src/main/resources/static/
+frontend/dist/
+frontend/node_modules/
+frontend/node/
+
+# Secrets — NEVER ship .env into a Docker image
+.env
+.env.*
+*.local
+
+# Source control & IDE
+.git/
+.gitignore
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & runtime state
+*.log
+scripts/.pids/
+scripts/logs/
+
+# Docs aren't needed at runtime (PDF is embedded via frontend/public/)
+docs/
+*.md
+!frontend/**/README*
+
+# Test artifacts
+**/__pycache__/
+*.pyc

@@ -1,5 +1,7 @@
 server:
-  port: 8080
+  # Local-dev port — matches .env (PORT=8085) and docs.
+  # Honors $PORT env var if set; defaults to 8085.
+  port: ${PORT:8085}
 
 logging:
   level:
