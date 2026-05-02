@@ -12,7 +12,9 @@ spring:
         period: 86400
 
 server:
-  port: 8080
+  # Honor the platform-assigned port (Railway, Render, Heroku all set $PORT
+  # to a random value at runtime). Falls back to 8080 if unset.
+  port: ${PORT:8080}
 
 logging:
   level:

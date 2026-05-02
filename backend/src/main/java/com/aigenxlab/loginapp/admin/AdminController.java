@@ -2,7 +2,6 @@ package com.aigenxlab.loginapp.admin;
 
 import com.aigenxlab.loginapp.auth.dto.UserResponse;
 import com.aigenxlab.loginapp.error.AppException;
-import com.aigenxlab.loginapp.user.User;
 import com.aigenxlab.loginapp.session.SessionRepository;
 import com.aigenxlab.loginapp.user.User;
 import com.aigenxlab.loginapp.user.UserRepository;
