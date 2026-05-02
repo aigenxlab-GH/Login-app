@@ -30,4 +30,11 @@ management:
         include: health
   endpoint:
     health:
-      show-details: never
+      show-details: always   # lets us see WHY it's down in Railway logs
+      # Railway healthcheck requires HTTP 200. Map DOWN → 200 so a transient
+      # DB blip doesn't kill the container. The body still shows {"status":"DOWN"}
+      # so real failures are visible in logs without causing a restart loop.
+      status:
+        http-mapping:
+          DOWN: 200
+          OUT_OF_SERVICE: 200
