@@ -12,13 +12,10 @@
 # ── STAGE 1 — build ──────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jdk AS builder
 
-# Install Node 20 LTS — frontend-maven-plugin uses the system node/npm
-# (pom.xml does not specify <installDirectory>).
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
- && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && rm -rf /var/lib/apt/lists/*
+# Note: Node is NOT installed system-wide here.  frontend-maven-plugin
+# downloads its own copy of Node 20 into frontend/node/ during the build
+# (see <install-node-and-npm> execution in backend/pom.xml).  This keeps
+# the image leaner and the Node version pinned by Maven, not by the OS.
 
 WORKDIR /build
 
@@ -31,11 +28,8 @@ RUN chmod +x ./backend/mvnw \
  && cd backend \
  && ./mvnw -B -q dependency:go-offline -DskipTests || true
 
-# Layer 2: package.json — cached as long as npm deps don't change.
-COPY frontend/package*.json        ./frontend/
-RUN cd frontend && npm ci --no-audit --no-fund
-
-# Layer 3: actual source.
+# Layer 2: full source (frontend + backend).
+# frontend-maven-plugin will download Node and run `npm install` itself.
 COPY frontend                      ./frontend
 COPY backend                       ./backend
 
