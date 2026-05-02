@@ -39,6 +39,11 @@ RUN cd frontend && npm ci --no-audit --no-fund
 COPY frontend                      ./frontend
 COPY backend                       ./backend
 
+# Re-apply the executable bit on mvnw — the COPY above overwrites it with
+# the non-executable version from git (Windows checkouts don't preserve
+# the +x mode bit). Without this, `./mvnw` fails with "Permission denied".
+RUN chmod +x ./backend/mvnw
+
 # Build the fat JAR. Tests are skipped here because the JVM wouldn't have a
 # database to connect to during image build — run `mvnw test` in CI instead.
 RUN cd backend && ./mvnw -B clean package -DskipTests
