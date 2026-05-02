@@ -6,12 +6,18 @@ import java.util.UUID;
 
 public record UserResponse(
         UUID id,
+        String employeeId,   // "5001" or null if not yet activated
         String name,
         String email,
         String address,
-        String designation
+        String designation,
+        String role,
+        boolean active
 ) {
     public static UserResponse from(User u) {
-        return new UserResponse(u.getId(), u.getName(), u.getEmail(), u.getAddress(), u.getDesignation());
+        String empId = u.getEmployeeId() != null ? String.valueOf(u.getEmployeeId()) : null;
+        return new UserResponse(
+                u.getId(), empId, u.getName(), u.getEmail(),
+                u.getAddress(), u.getDesignation(), u.getRole(), u.isActive());
     }
 }

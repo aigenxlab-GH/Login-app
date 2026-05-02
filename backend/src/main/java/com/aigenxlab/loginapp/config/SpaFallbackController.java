@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class SpaFallbackController {
 
-    @GetMapping({"/home", "/signup", "/change-password"})
+    @GetMapping({"/home", "/signup", "/change-password", "/user/{id}"})
     public String forward() {
         return "forward:/index.html";
     }

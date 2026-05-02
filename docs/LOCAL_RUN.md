@@ -1,221 +1,255 @@
 # Local Run Guide
 
 Two modes for running the Login App locally on Windows.
-Both require a `.env` file (or equivalent environment variables) at the repo root.
+The app runs on **port 8085** by default.
 
 ---
 
-## 1. Create Your `.env` File (required for both modes)
+## 1. Environment Variables (required for both modes)
 
-```powershell
-# From repo root
-Copy-Item .env.example .env
-# Then edit .env with your Supabase credentials
-```
+The following variables must be set before starting the application:
 
-Minimum required variables:
-
-```
-SPRING_PROFILES_ACTIVE=local
-DATABASE_URL=jdbc:postgresql://<host>:6543/postgres?sslmode=require
-DATABASE_USERNAME=postgres.<project-ref>
-DATABASE_PASSWORD=<your-db-password>
-AUTH_PASSWORD_PEPPER=<long-random-string>
-```
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | yes | JDBC URL — e.g. `jdbc:postgresql://<host>:6543/postgres?sslmode=require` |
+| `DATABASE_USERNAME` | yes | Postgres username — e.g. `postgres.<project-ref>` |
+| `DATABASE_PASSWORD` | yes | Postgres password |
+| `PORT` | no | Server port (default **8085**) |
+| `COOKIE_SECURE` | no | `true` for HTTPS production; `false` locally |
 
 Get the JDBC URL from:
 **Supabase Dashboard → Project → Settings → Database → Connection string → URI → JDBC**
-
-Generate a pepper: `openssl rand -hex 32` (or any long random string).
 
 ---
 
 ## Mode A — Dev Mode (hot reload)
 
 Two processes, two ports. Changes to frontend or backend code are reflected
-without rebuilding.
+without a full rebuild.
 
+### Manual steps (two terminals)
+
+**Terminal 1 — Backend on :8085**
 ```powershell
-.\scripts\run-dev.ps1
-```
-
-| Process | Port | Notes |
-|---------|------|-------|
-| Spring Boot (backend) | 8080 | Auto-reloads with DevTools |
-| Vite dev server (frontend) | 5173 | HMR; `/api` proxied to :8080 |
-
-**Open:** http://localhost:5173
-
-The script keeps both processes running. Press **Ctrl+C** to stop both.
-
-### What the script does
-
-1. Validates `backend/` and `frontend/` directories exist.
-2. Loads `.env` from repo root (warns if missing, does not fail).
-3. Checks ports 8080 and 5173 are free; exits with the owning process name if not.
-4. Installs frontend deps (`npm install`) if `node_modules/` is missing.
-5. Starts Spring Boot: `.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local`
-6. Starts Vite: `npm run dev`
-7. Saves PIDs to `scripts\.pids\backend.pid` and `scripts\.pids\frontend.pid`.
-8. Writes logs to `scripts\logs\backend.log` and `scripts\logs\frontend.log`.
-9. On Ctrl+C: calls `stop-dev.ps1` to stop both processes.
-
-### Useful commands while dev mode is running
-
-```powershell
-# Tail the backend log (Spring Boot startup takes ~30 s)
-Get-Content scripts\logs\backend.log -Wait
-
-# Check process status and ports
-.\scripts\status-local.ps1
-
-# Stop without Ctrl+C (e.g., from another terminal)
-.\scripts\stop-dev.ps1
-```
-
-### Manual alternative (two separate terminals)
-
-```powershell
-# Terminal 1 — backend
-$env:SPRING_PROFILES_ACTIVE = 'local'
-# (set other env vars or rely on .env loaded by a parent shell)
 cd backend
-.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
+.\mvnw.cmd spring-boot:run `
+  "--spring.datasource.url=jdbc:postgresql://<host>:<port>/<db>?sslmode=require" `
+  "--spring.datasource.username=postgres.<ref>" `
+  "--spring.datasource.password=<password>"
+```
 
-# Terminal 2 — frontend
+Wait for: `Started LoginAppApplication` in the console (~15–30 s).
+
+**Terminal 2 — Frontend on :5173**
+```powershell
 cd frontend
 npm install   # first time only
 npm run dev
 ```
 
+**Open:** http://localhost:5173
+
+Vite proxies all `/api/**` requests to Spring Boot on `:8085`.
+
 ---
 
 ## Mode B — Prod-Mode Local Test (single JAR)
 
-One process, one port, same as production. Maven builds the React app inside
-the JAR during the build.
+One process, one port — identical to what runs in production.
+
+### Build and start
 
 ```powershell
-.\scripts\run-prod-local.ps1
+# Step 1: build the JAR (from backend directory)
+cd backend
+.\mvnw.cmd clean package
+
+# Step 2: start with DB credentials as Spring args
+java -jar target\login-app.jar `
+  "--spring.datasource.url=jdbc:postgresql://<host>:<port>/<db>?sslmode=require" `
+  "--spring.datasource.username=postgres.<ref>" `
+  "--spring.datasource.password=<password>"
 ```
 
-**Open:** http://localhost:8080
+**Open:** http://localhost:8085
 
 - The UI (`/`) and the API (`/api/**`) are served from the same origin.
 - No Vite, no proxy — exactly what would run in production.
 - Press **Ctrl+C** to stop.
 
-### What the script does
-
-1. Validates directories and loads `.env`.
-2. Checks port 8080 is free.
-3. Runs `.\mvnw.cmd clean package` in `backend\`:
-   - `maven-clean-plugin` wipes `backend\src\main\resources\static\`
-   - `frontend-maven-plugin` runs `npm install` + `npm run build`
-   - Vite writes output to `frontend\dist\`
-   - `maven-resources-plugin` copies `frontend\dist\` → `src\main\resources\static\`
-   - `spring-boot:repackage` produces `backend\target\login-app.jar`
-4. On build failure: prints error and exits 1.
-5. On success: runs `java -jar backend\target\login-app.jar`.
-
-### Skip the build (if JAR already exists)
+### Skip the build (if JAR is already current)
 
 ```powershell
-.\scripts\run-prod-local.ps1 -SkipBuild
+java -jar C:\AIGenXLab\Projects\Login-app\backend\target\login-app.jar `
+  "--spring.datasource.url=..." `
+  "--spring.datasource.username=..." `
+  "--spring.datasource.password=..."
 ```
 
-### Manual alternative
-
-```powershell
-# From repo root — PowerShell
-$env:DATABASE_URL           = 'jdbc:postgresql://...'
-$env:DATABASE_USERNAME      = 'postgres.<ref>'
-$env:DATABASE_PASSWORD      = '<password>'
-$env:AUTH_PASSWORD_PEPPER   = '<pepper>'
-$env:SPRING_PROFILES_ACTIVE = 'prod'
-
-cd backend
-.\mvnw.cmd clean package
-java -jar target\login-app.jar
-```
+> **Note:** Always use the **absolute path** to the JAR when not `cd`-ing into
+> `backend\` first, to avoid `Unable to access jarfile` errors.
 
 ---
 
-## Checking Status
+## Flyway Migrations
 
-```powershell
-.\scripts\status-local.ps1
-```
+Flyway runs automatically on every startup and applies any pending migrations
+from `backend/src/main/resources/db/migration/`. Current migrations: **V1–V7**.
 
-Shows:
-- Whether backend/frontend PIDs from `.pids/` are running.
-- Which processes are listening on ports 8080 and 5173.
-- Log file paths and sizes.
+If the DB has been wiped or recreated, all 7 migrations will run on first startup.
+**No manual SQL is needed.**
+
+---
+
+## First-Time Setup (bootstrap admin account)
+
+After starting the app for the first time on a fresh DB:
+
+1. Open http://localhost:8085
+2. Click **Sign Up** and create the first account — choose **Admin** role.
+3. The first user ever registered is automatically:
+   - **Activated** (`is_active = true`)
+   - Assigned **Employee ID 5001**
+4. Log in and use the Admin dashboard to manage subsequent users.
+
+All other users who sign up after the first one will start as **inactive** and
+must be activated by an Admin before they can log in. Their employee ID is
+assigned (5002, 5003, …) the first time the Admin activates them.
+
+---
+
+## Admin User Management Page
+
+When you log in as an Admin, the dashboard shows a wide table of all other
+users with these enterprise-style controls:
+
+### Filter ribbon (top of the table)
+
+| Control | Behaviour |
+|---|---|
+| `Filter by` dropdown | Choose `By Name`, `By ID`, or `By Status` |
+| Input beside it | Text field for Name/ID; dropdown (Active/Inactive) for Status |
+| `Apply Filter` button | Filter only fires on click (or Enter in the text input) |
+| `Reset` button | Appears once a filter is applied; clears everything |
+
+> **Important**: changing the dropdown does **not** filter on its own. You
+> must click `Apply Filter` (or press Enter in the text field). This is by
+> design — see `CLAUDE.md` § 9.
+
+### Pagination footer
+
+| Control | Behaviour |
+|---|---|
+| `Rows per page` dropdown | `5` (default) / `10` / `15` |
+| `X–Y of Z` counter | Live count of visible vs total rows (filtered or not) |
+| Page-number buttons | Up to 5 visible at a time, sliding window |
+| `‹ Prev` / `Next ›` | Disabled at the first / last page |
+
+Changing the page size or applying a filter resets to **page 1**.
 
 ---
 
 ## Troubleshooting
 
-### "Port 8080 is already in use"
+### "Port 8085 is already in use"
 
 ```powershell
-# Find the process
-Get-NetTCPConnection -LocalPort 8080 -State Listen
-# Stop dev processes
-.\scripts\stop-dev.ps1
-# Or kill manually
-Stop-Process -Id <PID> -Force
-```
-
-### "Port 5173 is already in use"
-
-```powershell
-.\scripts\stop-dev.ps1
-# or
-Get-NetTCPConnection -LocalPort 5173 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+# Find what is using port 8085
+netstat -ano | findstr :8085
+# Kill the process by PID
+taskkill /PID <PID> /F
 ```
 
 ### Spring Boot fails to start — database errors
 
 ```
-Could not resolve placeholder 'DATABASE_URL'
+Could not resolve placeholder 'spring.datasource.url'
 ```
-The `.env` file is missing or a required variable is empty.
-Check `.env.example` for all required variables.
+The DB credentials were not passed. Pass them as `--spring.datasource.*` args
+after the JAR path (see examples above).
 
 ```
 Connection refused / FATAL: password authentication failed
 ```
-The Supabase credentials are wrong.
-Re-check **Supabase Dashboard → Settings → Database → Connection string → JDBC**.
-Make sure you're using the **connection pooler** URL (port 6543) not the direct connection (port 5432) unless you have IPv6 on the pooler.
+The Supabase credentials are wrong. Re-check:
+**Supabase Dashboard → Settings → Database → Connection string → JDBC**
+Use the **connection pooler** URL (port 6543), not the direct connection (port 5432).
 
 ```
 Flyway: Unable to obtain connection
 ```
-Same cause as above, or the Supabase project is paused (free tier pauses after inactivity).
-Restore it in the Supabase Dashboard.
+Same cause as above, or the Supabase project is paused (free tier pauses after
+inactivity). Restore it in the Supabase Dashboard first.
 
-### Spring Boot fails to start — AUTH_PASSWORD_PEPPER not set
+### `{"code":"SESSION_TIMED_OUT",...}` shown on page load
 
+Your browser has a stale `SESSION` cookie from a previous session (e.g., after
+the DB was wiped). This is now handled gracefully — the cookie is auto-expired
+and the login page loads normally. If you still see it:
+
+1. Open browser DevTools → Application → Cookies → delete the `SESSION` cookie.
+2. Hard-refresh the page.
+
+### `Error: Unable to access jarfile target\login-app.jar`
+
+You are running `java -jar target\login-app.jar` from the wrong directory.
+Either `cd backend` first, or use the absolute path:
+```powershell
+java -jar C:\AIGenXLab\Projects\Login-app\backend\target\login-app.jar ...
 ```
-Could not resolve placeholder 'AUTH_PASSWORD_PEPPER'
+
+### `{"code":"NOT_FOUND","message":"No static resource ."}` on `/`
+
+This should no longer happen — `pom.xml` has a fail-fast guard that aborts
+the build with `BUILD ABORTED: Vite output is missing` if `index.html` is not
+in `target/classes/static/` before packaging. If you ever see `NOT_FOUND` at
+runtime, you are running an old JAR — rebuild with `mvnw clean package` and
+restart.
+
+To manually verify the JAR's contents:
+
+```powershell
+Add-Type -Assembly System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead("C:\AIGenXLab\Projects\Login-app\backend\target\login-app.jar")
+$zip.Entries | Where-Object { $_.FullName -match "static/index\.html" } | ForEach-Object { $_.FullName }
+$zip.Dispose()
 ```
-Add `AUTH_PASSWORD_PEPPER=<long-random-string>` to your `.env` file.
-Generate one: `openssl rand -hex 32`
+
+Must output `BOOT-INF/classes/static/index.html`.
+
+### `BUILD ABORTED: Vite output is missing`
+
+The fail-fast guard fired. Common causes (also listed in the build error):
+
+1. **Vite build silently failed** — check for TypeScript errors:
+   ```powershell
+   cd frontend
+   npx tsc --noEmit
+   ```
+2. **`vite.config.ts` outDir is wrong** — it must be
+   `'../backend/src/main/resources/static'`, never `'dist'`.
+3. **Filesystem race** (rare) — just re-run `mvnw clean package`.
+
+### `Schema "public" has version N, but no migration could be resolved`
+
+The Flyway SQL files aren't in the JAR. This usually means a custom
+`maven-resources-plugin` execution was added to `pom.xml` and is interfering
+with the default resource processing. Remove any custom `copy-resources`
+execution — Vite should write to `static/` directly and Maven's default
+`process-resources` handles everything else.
 
 ### Java version mismatch
 
 ```
 UnsupportedClassVersionError
 ```
-The JAR was compiled for Java 17. Check: `java -version`
-Install Java 17+ (LTS). On Windows, [Eclipse Temurin](https://adoptium.net/) or `winget install EclipseAdoptium.Temurin.17.JDK`.
+The JAR requires Java 21. Check: `java -version`
+Install Java 21 LTS from [Eclipse Temurin](https://adoptium.net/).
 
 ### Node version mismatch
 
 Vite 5 requires Node 18+. Check: `node --version`
-Install Node 20 LTS from [nodejs.org](https://nodejs.org/) or use `nvm-windows`.
+Install Node 20 LTS from [nodejs.org](https://nodejs.org/).
 
 ### `mvnw.cmd` not found
 
@@ -223,29 +257,17 @@ Install Node 20 LTS from [nodejs.org](https://nodejs.org/) or use `nvm-windows`.
 # From backend/ directory
 Get-ChildItem mvnw.cmd
 ```
-If missing, the Maven wrapper was not committed. Regenerate it:
+If missing, regenerate:
 ```powershell
 cd backend
 mvn -N wrapper:wrapper -Dmaven=3.9.15
 ```
 
-### Frontend HMR not working in dev mode
-
-Vite requires the backend to be running before the frontend can make API calls.
-Wait ~30 s for Spring Boot to print `Started LoginAppApplication`.
-
 ### TypeScript errors on `npm run build`
 
-Run `cd frontend && node node_modules\typescript\bin\tsc --noEmit` to see all errors.
-The Maven build runs `tsc -b` before `vite build`; TypeScript errors fail the Maven build.
-
----
-
-## Log Files
-
-| File | Content |
-|------|---------|
-| `scripts\logs\backend.log` | Spring Boot stdout + stderr |
-| `scripts\logs\frontend.log` | Vite dev server stdout + stderr |
-
-These are overwritten on each `run-dev.ps1` invocation and are gitignored.
+```powershell
+cd frontend
+node node_modules\typescript\bin\tsc --noEmit
+```
+TypeScript errors will fail the Maven build. Fix all type errors before running
+`mvnw clean package`.

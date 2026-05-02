@@ -12,6 +12,9 @@ public class User {
     private String passwordHash;
     private String address;
     private String designation;
+    private Integer employeeId;
+    private String role;
+    private boolean active;
     private OffsetDateTime passwordUpdatedAt;
     private int failedLoginAttempts;
     private OffsetDateTime lockedUntil;
@@ -28,6 +31,9 @@ public class User {
     public String getPasswordHash() { return passwordHash; }
     public String getAddress() { return address; }
     public String getDesignation() { return designation; }
+    public Integer getEmployeeId() { return employeeId; }
+    public String getRole() { return role; }
+    public boolean isActive() { return active; }
     public OffsetDateTime getPasswordUpdatedAt() { return passwordUpdatedAt; }
     public int getFailedLoginAttempts() { return failedLoginAttempts; }
     public OffsetDateTime getLockedUntil() { return lockedUntil; }
@@ -42,6 +48,9 @@ public class User {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public void setAddress(String address) { this.address = address; }
     public void setDesignation(String designation) { this.designation = designation; }
+    public void setEmployeeId(Integer employeeId) { this.employeeId = employeeId; }
+    public void setRole(String role) { this.role = role; }
+    public void setActive(boolean active) { this.active = active; }
     public void setPasswordUpdatedAt(OffsetDateTime passwordUpdatedAt) { this.passwordUpdatedAt = passwordUpdatedAt; }
     public void setFailedLoginAttempts(int failedLoginAttempts) { this.failedLoginAttempts = failedLoginAttempts; }
     public void setLockedUntil(OffsetDateTime lockedUntil) { this.lockedUntil = lockedUntil; }

@@ -18,7 +18,7 @@ public class AuthProperties {
 
     public static class Session {
         private String cookieName = "SESSION";
-        private int idleTimeoutMinutes = 5;
+        private int idleTimeoutMinutes = 480;
 
         public String getCookieName() { return cookieName; }
         public void setCookieName(String cookieName) { this.cookieName = cookieName; }

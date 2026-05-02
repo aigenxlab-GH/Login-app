@@ -39,6 +39,10 @@ public class AuthService {
         User user = users.findByEmail(req.email().trim().toLowerCase())
                 .orElseThrow(AppException::invalidCredentials);
 
+        if (!user.isActive()) {
+            throw AppException.accountNotActivated();
+        }
+
         if (user.isLocked()) {
             throw AppException.accountLocked();
         }
@@ -71,14 +75,30 @@ public class AuthService {
         if (users.existsByEmail(req.email().trim().toLowerCase())) {
             throw AppException.emailAlreadyExists();
         }
+        // First user ever created is auto-activated regardless of role.
+        boolean isFirstUser = !users.existsAny();
+
         String hash = passwordService.hash(req.password());
         User user = users.insert(
                 req.name().trim(),
                 req.email().trim().toLowerCase(),
                 hash,
                 req.address().trim(),
-                req.designation().trim()
+                req.designation().trim(),
+                req.role(),
+                isFirstUser
         );
+
+        // Auto-assign employee ID for the first user (who is auto-activated).
+        if (isFirstUser) {
+            int empId = users.getNextEmployeeId();
+            if (empId != -1) {
+                users.assignEmployeeId(user.getId(), empId);
+            }
+            // Reload to pick up the assigned employee_id.
+            user = users.findById(user.getId()).orElse(user);
+        }
+
         return UserResponse.from(user);
     }
 

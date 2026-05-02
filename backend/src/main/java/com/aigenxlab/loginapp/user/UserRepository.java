@@ -42,19 +42,30 @@ public class UserRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    public List<User> findAll() {
+        String sql = "SELECT * FROM app_users ORDER BY created_at ASC";
+        return jdbc.query(sql, new MapSqlParameterSource(), USER_MAPPER);
+    }
+
     public boolean existsByEmail(String email) {
         String sql = "SELECT COUNT(*) FROM app_users WHERE LOWER(email) = LOWER(:email)";
         Long count = jdbc.queryForObject(sql, new MapSqlParameterSource("email", email), Long.class);
         return count != null && count > 0;
     }
 
+    public boolean existsAny() {
+        String sql = "SELECT COUNT(*) FROM app_users";
+        Long count = jdbc.queryForObject(sql, new MapSqlParameterSource(), Long.class);
+        return count != null && count > 0;
+    }
+
     // ── Writes ────────────────────────────────────────────────────────────────
 
     public User insert(String name, String email, String passwordHash,
-                       String address, String designation) {
+                       String address, String designation, String role, boolean active) {
         String sql = """
-                INSERT INTO app_users (name, email, password_hash, address, designation)
-                VALUES (:name, :email, :passwordHash, :address, :designation)
+                INSERT INTO app_users (name, email, password_hash, address, designation, role, is_active)
+                VALUES (:name, :email, :passwordHash, :address, :designation, :role, :active)
                 RETURNING *
                 """;
         MapSqlParameterSource params = new MapSqlParameterSource()
@@ -62,8 +73,40 @@ public class UserRepository {
                 .addValue("email", email.toLowerCase())
                 .addValue("passwordHash", passwordHash)
                 .addValue("address", address)
-                .addValue("designation", designation);
+                .addValue("designation", designation)
+                .addValue("role", role)
+                .addValue("active", active);
         return jdbc.queryForObject(sql, params, USER_MAPPER);
+    }
+
+    public void setActiveStatus(UUID userId, boolean active) {
+        String sql = "UPDATE app_users SET is_active = :active, updated_at = NOW() WHERE id = :id";
+        jdbc.update(sql, new MapSqlParameterSource()
+                .addValue("active", active)
+                .addValue("id", userId));
+    }
+
+    /**
+     * Returns the next available employee ID in the range 5001–5999.
+     * Returns -1 if all IDs in the range are exhausted.
+     */
+    public int getNextEmployeeId() {
+        String sql = "SELECT COALESCE(MAX(employee_id), 5000) + 1 FROM app_users WHERE employee_id IS NOT NULL";
+        Integer next = jdbc.queryForObject(sql, new MapSqlParameterSource(), Integer.class);
+        if (next == null || next > 5999) return -1;
+        return next;
+    }
+
+    public void assignEmployeeId(UUID userId, int employeeId) {
+        String sql = "UPDATE app_users SET employee_id = :empId, updated_at = NOW() WHERE id = :id";
+        jdbc.update(sql, new MapSqlParameterSource()
+                .addValue("empId", employeeId)
+                .addValue("id", userId));
+    }
+
+    public void deleteById(UUID id) {
+        jdbc.update("DELETE FROM app_users WHERE id = :id",
+                new MapSqlParameterSource("id", id));
     }
 
     public void updatePassword(UUID userId, String newPasswordHash) {
@@ -117,6 +160,10 @@ public class UserRepository {
             u.setPasswordHash(rs.getString("password_hash"));
             u.setAddress(rs.getString("address"));
             u.setDesignation(rs.getString("designation"));
+            int empId = rs.getInt("employee_id");
+            u.setEmployeeId(rs.wasNull() ? null : empId);
+            u.setRole(rs.getString("role"));
+            u.setActive(rs.getBoolean("is_active"));
             u.setFailedLoginAttempts(rs.getInt("failed_login_attempts"));
             u.setPasswordUpdatedAt(toOffsetDateTime(rs.getTimestamp("password_updated_at")));
             u.setLockedUntil(toOffsetDateTime(rs.getTimestamp("locked_until")));

@@ -52,4 +52,25 @@ public class AppException extends RuntimeException {
         return new AppException("PASSWORD_MISMATCH",
                 "Passwords do not match.", HttpStatus.UNPROCESSABLE_ENTITY);
     }
+
+    public static AppException accountNotActivated() {
+        return new AppException("ACCOUNT_NOT_ACTIVATED",
+                "Your account is not yet activated. Request Admin to activate your account.",
+                HttpStatus.FORBIDDEN);
+    }
+
+    public static AppException forbidden() {
+        return new AppException("FORBIDDEN",
+                "You do not have permission to perform this action.", HttpStatus.FORBIDDEN);
+    }
+
+    public static AppException employeeIdExhausted() {
+        return new AppException("EMPLOYEE_ID_EXHAUSTED",
+                "All employee IDs in the range 5001-5999 have been assigned.",
+                HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    public static AppException badRequest(String message) {
+        return new AppException("BAD_REQUEST", message, HttpStatus.BAD_REQUEST);
+    }
 }

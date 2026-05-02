@@ -75,9 +75,19 @@ public class SessionAuthFilter extends OncePerRequestFilter {
         }
 
         Optional<AppSession> sessionOpt = sessions.findByToken(token);
+        boolean isApiRequest = request.getRequestURI().startsWith("/api/");
 
         if (sessionOpt.isEmpty() || sessionOpt.get().isRevoked()) {
-            rejectWithJson(response, AppException.sessionTimedOut());
+            // Stale or forged cookie.
+            // For API requests → 401 so the frontend can redirect to login.
+            // For page/asset requests → clear the cookie and continue so the
+            //   login page can load normally (no JSON error on a page load).
+            expireCookie(response);
+            if (isApiRequest) {
+                rejectWithJson(response, AppException.sessionTimedOut());
+                return;
+            }
+            chain.doFilter(request, response);
             return;
         }
 
@@ -86,9 +96,14 @@ public class SessionAuthFilter extends OncePerRequestFilter {
         OffsetDateTime idleDeadline = OffsetDateTime.now().minusMinutes(idleMinutes);
 
         if (session.getLastSeenAt().isBefore(idleDeadline)) {
-            // Idle too long — revoke the session and return 401.
+            // Idle too long — revoke the session.
             sessions.revokeByToken(token);
-            rejectWithJson(response, AppException.sessionTimedOut());
+            expireCookie(response);
+            if (isApiRequest) {
+                rejectWithJson(response, AppException.sessionTimedOut());
+                return;
+            }
+            chain.doFilter(request, response);
             return;
         }
 
@@ -117,6 +132,14 @@ public class SessionAuthFilter extends OncePerRequestFilter {
                 .findFirst()
                 .map(Cookie::getValue)
                 .orElse(null);
+    }
+
+    private void expireCookie(HttpServletResponse response) {
+        Cookie blank = new Cookie(props.getSession().getCookieName(), "");
+        blank.setMaxAge(0);
+        blank.setHttpOnly(true);
+        blank.setPath("/");
+        response.addCookie(blank);
     }
 
     private void rejectWithJson(HttpServletResponse response, AppException ex)

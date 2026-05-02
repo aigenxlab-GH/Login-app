@@ -152,28 +152,66 @@
                 </executions>
             </plugin>
 
-            <!-- ── 2. Copy frontend/dist → src/main/resources/static ────────── -->
-            <!--     Runs at generate-resources (after the npm build above)      -->
-            <!--     so that process-resources picks up the files into the JAR.  -->
+            <!-- ── 2. Re-copy static into target/classes at prepare-package ─── -->
+            <!--                                                                  -->
+            <!-- Race condition workaround: on Windows, frontend-maven-plugin's   -->
+            <!-- npm process can return to Maven *before* the OS flushes Vite's   -->
+            <!-- output files to disk. The result: the default process-resources  -->
+            <!-- copies an empty (or partial) static/ into target/classes, and    -->
+            <!-- the JAR ships without the SPA assets ("No static resource .").   -->
+            <!--                                                                  -->
+            <!-- Fix: run a second copy at prepare-package (after compile, well   -->
+            <!-- after npm has fully released its file handles). This idempotent  -->
+            <!-- copy guarantees target/classes/static is populated before the    -->
+            <!-- JAR is assembled in the package phase.                           -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
+                <artifactId>maven-antrun-plugin</artifactId>
                 <executions>
+                    <!-- Step A: re-copy static at prepare-package (race fix). -->
                     <execution>
-                        <id>copy-frontend-build</id>
-                        <phase>generate-resources</phase>
-                        <goals><goal>copy-resources</goal></goals>
+                        <id>refresh-frontend-static</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>run</goal></goals>
                         <configuration>
-                            <outputDirectory>
-                                ${project.basedir}/src/main/resources/static
-                            </outputDirectory>
-                            <overwrite>true</overwrite>
-                            <resources>
-                                <resource>
-                                    <directory>${frontend.dir}/dist</directory>
-                                    <filtering>false</filtering>
-                                </resource>
-                            </resources>
+                            <target>
+                                <copy todir="${project.build.outputDirectory}/static"
+                                      overwrite="true" failonerror="false">
+                                    <fileset dir="${project.basedir}/src/main/resources/static" erroronmissingdir="false"/>
+                                </copy>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <!-- Step B: hard fail if the Vite output is still missing.   -->
+                    <!-- This prevents shipping a JAR that returns                -->
+                    <!-- {"code":"NOT_FOUND","message":"No static resource ."}.   -->
+                    <execution>
+                        <id>verify-frontend-static</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <fail message="
+                                    ============================================================
+                                    BUILD ABORTED: Vite output is missing.
+                                    target/classes/static/index.html does not exist.
+                                    ============================================================
+                                    The frontend-maven-plugin reported success but no SPA
+                                    assets were copied into the JAR. Common causes:
+                                      1. Vite build silently failed (check for TypeScript
+                                         errors with: cd frontend &amp;&amp; npx tsc --noEmit)
+                                      2. vite.config.ts outDir is wrong (must be
+                                         '../backend/src/main/resources/static')
+                                      3. Filesystem race (rare; rerun mvnw clean package)
+                                    Do NOT ship this JAR — the app would be broken.
+                                    ============================================================">
+                                    <condition>
+                                        <not>
+                                            <available file="${project.build.outputDirectory}/static/index.html"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

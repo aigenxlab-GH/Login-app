@@ -10,8 +10,8 @@ Read it before touching anything. These rules are **not negotiable**.
 | Layer | Technology |
 |---|---|
 | Backend runtime | Spring Boot 3.3.x, Java 21 |
-| Backend auth | Spring Security 6, BCrypt, server-side HttpSession |
-| Backend persistence | Spring Data JPA, Hibernate (validate DDL mode) |
+| Backend auth | Spring Security 6, BCrypt, custom DB session table |
+| Backend persistence | Spring Data JPA + raw JDBC (NamedParameterJdbcTemplate), Hibernate (validate DDL mode) |
 | Database | Supabase Postgres via JDBC — **never Supabase Auth** |
 | Schema migrations | Flyway (SQL files in `backend/src/main/resources/db/migration/`) |
 | Frontend | React 18, Vite 5, TypeScript (strict), Tailwind CSS 3 |
@@ -37,14 +37,21 @@ separate frontend server in production.
 `backend/pom.xml` uses `com.github.eirslett:frontend-maven-plugin` bound to
 the `generate-resources` phase:
 
-1. `install-node-and-npm` — downloads Node v20 LTS into `frontend/node/`
-2. `npm ci` — installs dependencies from the lock file
-3. `npm run build` — Vite writes its output to
+1. `npm install` — installs dependencies (uses system Node from PATH)
+2. `npm run build` — Vite writes its output **directly** to
    `backend/src/main/resources/static/` (configured in `frontend/vite.config.ts`
-   via `build.outDir`)
+   via `build.outDir: '../backend/src/main/resources/static'`)
 
-Maven's `process-resources` then copies that directory into the classpath, and
-`spring-boot:repackage` seals everything into the executable JAR.
+Then Maven's default `process-resources` (which runs in the next phase) copies
+`src/main/resources/**` (including the freshly populated `static/`) into
+`target/classes/`, and `spring-boot:repackage` seals everything into the
+executable JAR at `BOOT-INF/classes/static/`.
+
+**Important**: Do **not** add a custom `maven-resources-plugin` copy execution
+to move files from `frontend/dist` → `static/`. That intermediate step was
+removed because it interfered with Maven's default resource processing and
+caused YAML / SQL migration files to be silently excluded from the JAR.
+Vite writes directly to the final destination — keep it that way.
 
 ### Spring Boot serves everything
 At runtime the JAR serves:
@@ -56,7 +63,7 @@ At runtime the JAR serves:
 | Unknown non-API paths | `SpaForwardingConfig` forwards to `forward:/index.html` |
 
 `SpaForwardingConfig` (`addViewControllers`) is **required**. Without it,
-refreshing `/home` or `/signup` returns a 404 because the server has no
+refreshing `/home` or `/user/:id` returns a 404 because the server has no
 matching route.
 
 ---
@@ -69,14 +76,14 @@ ALWAYS use relative /api/... paths.
 ```
 
 In **dev mode** (`npm run dev`), Vite's dev server runs on `:5173` and proxies
-any request starting with `/api` to `http://localhost:8080`. This proxy is
+any request starting with `/api` to `http://localhost:8085`. This proxy is
 configured in `frontend/vite.config.ts` and is a dev-only concern.
 
 In **prod mode** (single JAR), there is only one origin, so relative `/api/...`
 paths route directly to Spring Boot — no proxy, no CORS needed.
 
 The fetch wrapper in `frontend/src/api/client.ts` **must** always use relative
-paths and always set `credentials: 'include'` so the JSESSIONID cookie is sent
+paths and always set `credentials: 'include'` so the SESSION cookie is sent
 on every API request.
 
 ---
@@ -84,13 +91,16 @@ on every API request.
 ## 4. Auth Rules
 
 - Authentication is handled entirely by Spring Boot.
-- Users are stored in the `app_user` table in Supabase Postgres.
-- Passwords are hashed with BCrypt via Spring Security's `PasswordEncoder`.
-- Sessions are server-side HTTP sessions (JSESSIONID cookie, HttpOnly,
-  SameSite=Lax).
+- Users are stored in the `app_users` table in Supabase Postgres.
+- Passwords are hashed with **BCrypt** via Spring Security's `PasswordEncoder`.
+- Sessions are stored in the `app_sessions` DB table. A custom `SESSION` httpOnly
+  cookie (SameSite=Lax) carries the session token. `SessionAuthFilter` validates
+  the token on every request.
 - **Never use Supabase Auth, Supabase GoTrue, or any third-party auth SDK.**
 - CSRF is disabled (same-origin SPA + JSON-only API + SameSite=Lax cookie).
   Re-enable if cross-origin clients are ever added.
+- Idle session timeout: **480 minutes** (configured in `AuthProperties.java` and
+  `application.yml`).
 
 ---
 
@@ -100,20 +110,42 @@ on every API request.
   `backend/src/main/resources/db/migration/`.
 - Naming: `V{n}__{description}.sql` (two underscores).
 - Hibernate DDL mode is `validate` — Hibernate never creates or alters tables.
-- `supabase/migrations/` mirrors the Flyway SQL files as documentation.
-- Raw JDBC for ad-hoc queries is allowed in `AuthService`; JPA for repositories.
+- Current migration history:
+  V1 (init) → V2 (rename to app_users) → V3 (sessions) → V4 (lockout/role) →
+  V5 (truncate + is_active) → V6 (employee_id, full rebuild) → V7 (truncate all).
+- Raw JDBC (`NamedParameterJdbcTemplate`) is used in `UserRepository` and
+  `SessionRepository` for all queries.
 
 ---
 
-## 6. Local Dev Mode
+## 6. User Roles & Activation
+
+- Every user has a `role` column: `ADMIN` or `GENERAL`.
+- New accounts are created **inactive** (`is_active = false`) by default.
+- **Exception**: the very first user ever registered is auto-activated and is
+  also auto-assigned employee ID **5001** at signup (handled in
+  `AuthService.signup()`).
+- Only an ADMIN can activate or deactivate other users via
+  `PATCH /api/admin/users/{id}/status`.
+- Users with `is_active = false` cannot log in — they receive
+  `ACCOUNT_NOT_ACTIVATED` (403).
+- When an ADMIN activates a user for the first time, an **employee ID** is
+  auto-assigned in the range 5001–5999 (sequential, `MAX(employee_id) + 1`).
+  Employee IDs are never reassigned after deactivation/reactivation.
+- If all 999 employee IDs are exhausted, the API returns
+  `EMPLOYEE_ID_EXHAUSTED` (422).
+
+---
+
+## 7. Local Dev Mode
 
 ```bash
-# Terminal 1 — backend on :8080
+# Terminal 1 — backend on :8085
 cd backend
 ./mvnw spring-boot:run \
   -Dspring-boot.run.jvmArguments="-DDATABASE_URL=... -DDATABASE_USERNAME=... -DDATABASE_PASSWORD=..."
 
-# Terminal 2 — frontend on :5173 (proxies /api to :8080)
+# Terminal 2 — frontend on :5173 (proxies /api to :8085)
 cd frontend
 npm run dev
 ```
@@ -122,7 +154,7 @@ Open http://localhost:5173 in the browser.
 
 ---
 
-## 7. Prod-Mode Local Test
+## 8. Prod-Mode Local Test
 
 ```bash
 cd backend
@@ -130,31 +162,43 @@ cd backend
 java -jar target/login-app.jar
 ```
 
-Env vars required before `java -jar` (PowerShell):
+Env vars required before `java -jar` (PowerShell — pass as Spring args):
 ```powershell
-$env:DATABASE_URL      = 'jdbc:postgresql://<host>:<port>/<db>?sslmode=require'
-$env:DATABASE_USERNAME = 'postgres.<ref>'
-$env:DATABASE_PASSWORD = '<password>'
+java -jar target\login-app.jar `
+  "--spring.datasource.url=jdbc:postgresql://<host>:<port>/<db>?sslmode=require" `
+  "--spring.datasource.username=postgres.<ref>" `
+  "--spring.datasource.password=<password>"
 ```
 
-Open http://localhost:8080 — both UI and API are served from the same origin.
+Open http://localhost:8085 — both UI and API are served from the same origin.
 
 ---
 
-## 8. Code Conventions
+## 9. Code Conventions
 
 - Java: no Lombok. Plain getters/setters or records. Java 21 features OK.
 - No `@Transactional` on controllers — only on `@Service` methods.
 - DTOs are Java records.
-- Error responses: always JSON `{"error":"...", "message":"...", "fieldErrors":{}}`.
+- Error responses: always JSON `{"code":"...", "message":"..."}` via `ApiErrorResponse`.
+- All named error codes are static factory methods on `AppException`.
 - Tests: `@SpringBootTest` + `@ActiveProfiles("test")` + H2 in-memory.
   Flyway disabled in test profile; Hibernate uses `create-drop`.
 - Frontend: no default exports from non-page files (use named exports).
 - One `Field` helper component per form file — do not share across pages.
+- UI style: glassmorphism (`bg-white/30 backdrop-blur-md ring-1 ring-white/50 rounded-3xl`).
+  Keep consistent across all pages.
+- Filtering & pagination: **filtering & sorting happen client-side** in
+  `useMemo` over the full list returned by `GET /api/admin/users`. This is
+  intentional for the current scale (small user counts). If the user table
+  ever grows beyond a few hundred rows, switch to server-side
+  filtering/pagination (`?page=&size=&sortBy=&q=`).
+- Filter triggers: **never apply a filter on every keystroke or on dropdown
+  change**. Always require an explicit "Apply" button click (or Enter key in
+  the text input). This is the convention for every filter ribbon.
 
 ---
 
-## 9. Files Never to Commit
+## 10. Files Never to Commit
 
 ```
 .env
@@ -168,7 +212,7 @@ frontend/dist/
 
 ---
 
-## 10. Adding New Pages (checklist)
+## 11. Adding New Pages (checklist)
 
 1. Create `frontend/src/pages/NewPage.tsx`
 2. Add `<Route path="/new-path" element={<NewPage />} />` in `App.tsx`
@@ -177,20 +221,18 @@ frontend/dist/
    deep-link returns `index.html` instead of a 404. A catch-all regex is
    intentionally NOT used because it would intercept `/swagger-ui` and
    `/actuator` before their own handlers run.
-4. Add API endpoint(s) in `AuthController` or a new `@RestController`
+4. Add API endpoint(s) in `AuthController`, `AdminController`, or a new `@RestController`
 5. Add Flyway migration if schema changes (new `V{n}__...sql`)
 6. Add or update `@SpringBootTest` integration test
 
 ---
 
-## 11. Environment Variables (full list)
-
-See `.env.example` in the repo root for placeholders.
+## 12. Environment Variables (full list)
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | yes | JDBC URL for Supabase Postgres |
+| `DATABASE_URL` | yes | JDBC URL for Supabase Postgres (include `?sslmode=require`) |
 | `DATABASE_USERNAME` | yes | Postgres username |
 | `DATABASE_PASSWORD` | yes | Postgres password |
-| `PORT` | no | Server port (default 8080) |
+| `PORT` | no | Server port (default **8085**) |
 | `COOKIE_SECURE` | no | `true` in HTTPS prod; `false` locally |

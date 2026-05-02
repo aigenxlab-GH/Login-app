@@ -10,7 +10,9 @@
       "PowerShell(Set-Location \"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\backend\"; & .\\\\mvnw.cmd clean package -B -q 2>$null > \"C:\\\\Users\\\\Admin\\\\.tools\\\\mvnw-stdout.log\"; Write-Output \"ExitCode=$LASTEXITCODE\")",
       "PowerShell(\"done\")",
       "Bash(Test-Path C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\.env)",
-      "PowerShell(Get-Content C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\scripts\\\\logs\\\\jar-test.log | Select-String \"login|logout|auth/me|signup\" -CaseSensitive:$false | ForEach-Object { $_.Line.Trim\\(\\) } | Select-Object -Last 20)"
+      "PowerShell(Get-Content C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\scripts\\\\logs\\\\jar-test.log | Select-String \"login|logout|auth/me|signup\" -CaseSensitive:$false | ForEach-Object { $_.Line.Trim\\(\\) } | Select-Object -Last 20)",
+      "Bash(.\\\\mvnw.cmd clean *)",
+      "PowerShell(Add-Type -Assembly System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\backend\\\\target\\\\login-app.jar.original\"\\); $zip.Entries | ForEach-Object { $_.FullName } | Select-Object -First 60; $zip.Dispose\\(\\))"
     ]
   }
 }

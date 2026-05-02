@@ -129,13 +129,14 @@ class AuthServiceTest {
     @Test
     void signup_success() {
         when(users.existsByEmail("grace@example.com")).thenReturn(false);
+        when(users.existsAny()).thenReturn(false); // first user → auto-activated
         when(passwordService.hash("secret12")).thenReturn("hashed");
         User created = makeUser("grace@example.com", "hashed", 0, null);
-        when(users.insert(anyString(), eq("grace@example.com"), eq("hashed"), anyString(), anyString()))
+        when(users.insert(anyString(), eq("grace@example.com"), eq("hashed"), anyString(), anyString(), anyString(), eq(true)))
                 .thenReturn(created);
 
         UserResponse result = service.signup(new SignupRequest(
-                "Grace", "grace@example.com", "secret12", "secret12", "Addr", "Eng"));
+                "Grace", "grace@example.com", "secret12", "secret12", "Addr", "Eng", "GENERAL"));
 
         assertThat(result.email()).isEqualTo("grace@example.com");
     }
@@ -145,7 +146,7 @@ class AuthServiceTest {
         when(users.existsByEmail("ada@example.com")).thenReturn(true);
 
         assertThatThrownBy(() -> service.signup(new SignupRequest(
-                "Ada", "ada@example.com", "secret12", "secret12", "Addr", "Eng")))
+                "Ada", "ada@example.com", "secret12", "secret12", "Addr", "Eng", "GENERAL")))
                 .isInstanceOf(AppException.class)
                 .extracting(e -> ((AppException) e).getCode())
                 .isEqualTo("EMAIL_ALREADY_EXISTS");
@@ -154,7 +155,7 @@ class AuthServiceTest {
     @Test
     void signup_passwordMismatch_throws422() {
         assertThatThrownBy(() -> service.signup(new SignupRequest(
-                "Ada", "ada@example.com", "secret12", "different", "Addr", "Eng")))
+                "Ada", "ada@example.com", "secret12", "different", "Addr", "Eng", "GENERAL")))
                 .isInstanceOf(AppException.class)
                 .extracting(e -> ((AppException) e).getCode())
                 .isEqualTo("PASSWORD_MISMATCH");
@@ -213,6 +214,8 @@ class AuthServiceTest {
         u.setPasswordHash(hash);
         u.setAddress("Addr");
         u.setDesignation("Eng");
+        u.setRole("GENERAL");
+        u.setActive(true);   // active by default so login tests pass
         u.setFailedLoginAttempts(failedAttempts);
         u.setLockedUntil(lockedUntil);
         u.setCreatedAt(OffsetDateTime.now());

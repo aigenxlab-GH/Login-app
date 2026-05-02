@@ -81,7 +81,7 @@ class SessionAuthFilterTest {
 
         when(sessionRepo.findByToken("revoked-token")).thenReturn(Optional.of(session));
 
-        MockHttpServletRequest req = requestWithCookie("revoked-token");
+        MockHttpServletRequest req = apiRequestWithCookie("revoked-token");
         MockHttpServletResponse res = new MockHttpServletResponse();
 
         filter.doFilter(req, res, chain);
@@ -96,7 +96,7 @@ class SessionAuthFilterTest {
     void sessionNotFound_returns401() throws Exception {
         when(sessionRepo.findByToken("ghost-token")).thenReturn(Optional.empty());
 
-        MockHttpServletRequest req = requestWithCookie("ghost-token");
+        MockHttpServletRequest req = apiRequestWithCookie("ghost-token");
         MockHttpServletResponse res = new MockHttpServletResponse();
 
         filter.doFilter(req, res, chain);
@@ -113,7 +113,7 @@ class SessionAuthFilterTest {
 
         when(sessionRepo.findByToken("idle-token")).thenReturn(Optional.of(session));
 
-        MockHttpServletRequest req = requestWithCookie("idle-token");
+        MockHttpServletRequest req = apiRequestWithCookie("idle-token");
         MockHttpServletResponse res = new MockHttpServletResponse();
 
         filter.doFilter(req, res, chain);
@@ -137,6 +137,13 @@ class SessionAuthFilterTest {
 
     private static MockHttpServletRequest requestWithCookie(String token) {
         MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setCookies(new Cookie("SESSION", token));
+        return req;
+    }
+
+    /** Simulates an API request — stale sessions must return 401 for /api/** paths. */
+    private static MockHttpServletRequest apiRequestWithCookie(String token) {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/auth/me");
         req.setCookies(new Cookie("SESSION", token));
         return req;
     }

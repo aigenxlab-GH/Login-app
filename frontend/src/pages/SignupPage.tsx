@@ -11,6 +11,7 @@ interface FormState {
   confirmPassword: string;
   address: string;
   designation: string;
+  role: 'ADMIN' | 'GENERAL';
 }
 
 const initial: FormState = {
@@ -20,6 +21,7 @@ const initial: FormState = {
   confirmPassword: '',
   address: '',
   designation: '',
+  role: 'GENERAL',
 };
 
 export function SignupPage() {
@@ -46,6 +48,7 @@ export function SignupPage() {
     if (!form.confirmPassword) local.confirmPassword = 'Required';
     if (!form.address.trim()) local.address = 'Required';
     if (!form.designation.trim()) local.designation = 'Required';
+    if (!form.role) local.role = 'Required';
 
     // Collect names of empty fields for the banner message
     const fieldLabels: Record<string, string> = {
@@ -55,6 +58,7 @@ export function SignupPage() {
       confirmPassword: 'Confirm Password',
       address: 'Address',
       designation: 'Designation',
+      role: 'User Type',
     };
     const missing = Object.keys(local).map((k) => fieldLabels[k]);
     if (missing.length > 0) {
@@ -123,6 +127,8 @@ export function SignupPage() {
               error={fieldErrors.address} autoComplete="street-address" required />
             <Field label="Designation" value={form.designation} onChange={(v) => update('designation', v)}
               error={fieldErrors.designation} required />
+            <RoleSelect value={form.role} onChange={(v) => update('role', v as 'ADMIN' | 'GENERAL')}
+              error={fieldErrors.role} />
           </div>
 
           {generalError && (
@@ -178,5 +184,32 @@ function Field({ label, value, onChange, type = 'text', error, autoComplete, req
       />
       {error && <span className="mt-1 block text-xs text-red-200">{error}</span>}
     </label>
+  );
+}
+
+interface RoleSelectProps {
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}
+
+function RoleSelect({ value, onChange, error }: RoleSelectProps) {
+  return (
+    <div>
+      <span className="mb-1.5 block text-sm font-medium text-[#1a2e52]">
+        User Type <span className="text-red-300">*</span>
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full rounded-full border-0 bg-white/80 px-5 py-2.5 text-sm text-slate-700 shadow-inner outline-none focus:ring-2 ${
+          error ? 'ring-2 ring-red-400' : 'focus:ring-white/70'
+        }`}
+      >
+        <option value="GENERAL">General</option>
+        <option value="ADMIN">Admin</option>
+      </select>
+      {error && <span className="mt-1 block text-xs text-red-200">{error}</span>}
+    </div>
   );
 }
