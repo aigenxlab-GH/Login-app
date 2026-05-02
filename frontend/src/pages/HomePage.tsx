@@ -315,15 +315,14 @@ function AdminDashboard({ user }: { user: User }) {
                 Apply Filter
               </button>
 
-              {applied && (
-                <button
-                  type="button"
-                  onClick={handleResetFilter}
-                  className="rounded-full border border-[#1a2e52]/40 px-3 py-1.5 text-xs font-semibold text-[#1a2e52] hover:bg-white/40 transition"
-                >
-                  Reset
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleResetFilter}
+                disabled={!applied && textDraft === '' && criteria === 'name'}
+                className="rounded-full border border-[#1a2e52]/40 px-3 py-1.5 text-xs font-semibold text-[#1a2e52] hover:bg-white/40 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Reset All Filters
+              </button>
             </div>
           </div>
 

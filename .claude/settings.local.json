@@ -12,7 +12,9 @@
       "Bash(Test-Path C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\.env)",
       "PowerShell(Get-Content C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\scripts\\\\logs\\\\jar-test.log | Select-String \"login|logout|auth/me|signup\" -CaseSensitive:$false | ForEach-Object { $_.Line.Trim\\(\\) } | Select-Object -Last 20)",
       "Bash(.\\\\mvnw.cmd clean *)",
-      "PowerShell(Add-Type -Assembly System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\backend\\\\target\\\\login-app.jar.original\"\\); $zip.Entries | ForEach-Object { $_.FullName } | Select-Object -First 60; $zip.Dispose\\(\\))"
+      "PowerShell(Add-Type -Assembly System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"C:\\\\AIGenXLab\\\\Projects\\\\Login-app\\\\backend\\\\target\\\\login-app.jar.original\"\\); $zip.Entries | ForEach-Object { $_.FullName } | Select-Object -First 60; $zip.Dispose\\(\\))",
+      "PowerShell(try { $body = '{\"name\":\"Test\",\"email\":\"admin@admin.com\",\"password\":\"Test1234\",\"confirmPassword\":\"Test1234\",\"address\":\"x\",\"designation\":\"x\",\"role\":\"ADMIN\"}'; Invoke-RestMethod -Uri \"http://localhost:8085/api/auth/signup\" -Method POST -ContentType \"application/json\" -Body $body } catch { Write-Host \"Status: $\\($_.Exception.Response.StatusCode.value__\\)\"; $stream = $_.Exception.Response.GetResponseStream\\(\\); if \\($stream\\) { $reader = New-Object System.IO.StreamReader\\($stream\\); Write-Host \"Body: $\\($reader.ReadToEnd\\(\\)\\)\" } })",
+      "PowerShell([System.Environment]::GetEnvironmentVariable\\(\"AUTH_PASSWORD_PEPPER\", \"Process\"\\); [System.Environment]::GetEnvironmentVariable\\(\"AUTH_PASSWORD_PEPPER\", \"User\"\\); [System.Environment]::GetEnvironmentVariable\\(\"AUTH_PASSWORD_PEPPER\", \"Machine\"\\))"
     ]
   }
 }

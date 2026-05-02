@@ -10,7 +10,7 @@ Read it before touching anything. These rules are **not negotiable**.
 | Layer | Technology |
 |---|---|
 | Backend runtime | Spring Boot 3.3.x, Java 21 |
-| Backend auth | Spring Security 6, BCrypt, custom DB session table |
+| Backend auth | Spring Security 6, **Argon2id + server-side pepper**, custom DB session table |
 | Backend persistence | Spring Data JPA + raw JDBC (NamedParameterJdbcTemplate), Hibernate (validate DDL mode) |
 | Database | Supabase Postgres via JDBC — **never Supabase Auth** |
 | Schema migrations | Flyway (SQL files in `backend/src/main/resources/db/migration/`) |
@@ -92,7 +92,16 @@ on every API request.
 
 - Authentication is handled entirely by Spring Boot.
 - Users are stored in the `app_users` table in Supabase Postgres.
-- Passwords are hashed with **BCrypt** via Spring Security's `PasswordEncoder`.
+- Passwords are hashed with **Argon2id** (3 iterations, 64 MB memory,
+  parallelism 1) via `de.mkammerer:argon2-jvm`, with a server-side **pepper**
+  (`AUTH_PASSWORD_PEPPER` env var) appended to the raw password before hashing.
+  See `auth/PasswordService.java`. A leaked DB alone cannot be cracked offline
+  without the pepper.
+- **Critical**: every JAR run must be supplied the **same** pepper that was
+  used when accounts were created. If you restart the JAR with a different
+  (or missing) pepper, every existing user's hash will fail to verify and
+  they'll all see `INVALID_CREDENTIALS`. Always pass
+  `--auth.password.pepper=<value from .env>` when starting the JAR.
 - Sessions are stored in the `app_sessions` DB table. A custom `SESSION` httpOnly
   cookie (SameSite=Lax) carries the session token. `SessionAuthFilter` validates
   the token on every request.
@@ -101,6 +110,9 @@ on every API request.
   Re-enable if cross-origin clients are ever added.
 - Idle session timeout: **480 minutes** (configured in `AuthProperties.java` and
   `application.yml`).
+- Account lockout: after `auth.lockout.max-failed-attempts` (default 5) failed
+  login attempts, the account locks for `auth.lockout.lockout-minutes`
+  (default 15).
 
 ---
 
@@ -112,7 +124,8 @@ on every API request.
 - Hibernate DDL mode is `validate` — Hibernate never creates or alters tables.
 - Current migration history:
   V1 (init) → V2 (rename to app_users) → V3 (sessions) → V4 (lockout/role) →
-  V5 (truncate + is_active) → V6 (employee_id, full rebuild) → V7 (truncate all).
+  V5 (truncate + is_active) → V6 (employee_id, full rebuild) → V7 (truncate
+  all) → V8 (wipe for fresh start).
 - Raw JDBC (`NamedParameterJdbcTemplate`) is used in `UserRepository` and
   `SessionRepository` for all queries.
 
@@ -198,6 +211,45 @@ Open http://localhost:8085 — both UI and API are served from the same origin.
 
 ---
 
+## 13. Form Validation Conventions (NON-NEGOTIABLE)
+
+Every user-facing form (Login, Signup, Change Password, etc.) **must** use the
+shared validation infrastructure:
+
+- **`frontend/src/lib/validation.ts`** — composable validators (`required`,
+  `email`, `minLength`, `maxLength`, `matches`, `pattern`) plus
+  `mapBackendError` that maps every `AppException` code to a friendly message
+  and the right field.
+- **`frontend/src/lib/useFormValidation.ts`** — reusable hook that owns
+  values, errors, touched state, form-level error, and the `applyServerError`
+  bridge from API responses to inline errors.
+- **`frontend/src/components/FormField.tsx`** — shared `FormField`,
+  `FormSelect`, `FormErrorSummary` with red ring on error, helper text,
+  inline error icon, and ARIA wiring (`aria-invalid`, `aria-describedby`,
+  `aria-required`).
+
+Backend DTOs (`SignupRequest`, `LoginRequest`, `ChangePasswordRequest`)
+**must** carry user-friendly Jakarta validation messages
+(`@NotBlank(message = "...")`). The frontend mirrors these length/format
+constraints exactly so client-side and server-side validation agree.
+
+UX rules (do not deviate per page):
+
+1. Field errors **do not show** on first render. They appear only after the
+   field is touched (`onBlur`) or after the user submits.
+2. Once shown, errors update on every keystroke and disappear as soon as
+   the input becomes valid.
+3. Submit calls `validateAll()` — marks every field touched and shows all
+   errors at once. Don't disable the submit button based on form validity;
+   let users click and see the errors.
+4. Server errors with a `details` map (`VALIDATION_FAILED`) populate
+   per-field errors automatically.
+5. Server errors mapped to a specific field (e.g. `EMAIL_ALREADY_EXISTS` →
+   email, `OLD_PASSWORD_INVALID` → oldPassword) appear inline on that field;
+   everything else goes in `FormErrorSummary` at the form level.
+
+---
+
 ## 10. Files Never to Commit
 
 ```
@@ -234,5 +286,8 @@ frontend/dist/
 | `DATABASE_URL` | yes | JDBC URL for Supabase Postgres (include `?sslmode=require`) |
 | `DATABASE_USERNAME` | yes | Postgres username |
 | `DATABASE_PASSWORD` | yes | Postgres password |
+| `AUTH_PASSWORD_PEPPER` | **yes** | Long random string used by Argon2id. Generate with `openssl rand -hex 32`. **Must remain stable** — changing it invalidates every existing user password hash. |
+| `AUTH_MAX_FAILED_ATTEMPTS` | no | Failed-login lockout threshold (default 5) |
+| `AUTH_LOCKOUT_MINUTES` | no | Lockout duration in minutes (default 15) |
 | `PORT` | no | Server port (default **8085**) |
 | `COOKIE_SECURE` | no | `true` in HTTPS prod; `false` locally |

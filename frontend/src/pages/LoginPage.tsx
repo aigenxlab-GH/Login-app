@@ -1,38 +1,41 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../api/client';
 import { login } from '../api/auth';
 import { MessageBanner } from '../components/Banner';
+import { FormField, FormErrorSummary } from '../components/FormField';
+import { useFormValidation } from '../lib/useFormValidation';
+import { email, firstError, required } from '../lib/validation';
+
+interface LoginValues {
+  email: string;
+  password: string;
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const {
+    values, errors, touched, formError,
+    setValue, blur, validateAll, applyServerError,
+  } = useFormValidation<LoginValues>(
+    { email: '', password: '' },
+    {
+      email: (v) => firstError(v, required('Email'), email()),
+      password: (v) => required('Password')(v),
+    },
+  );
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-
-    const missing: string[] = [];
-    if (!email.trim()) missing.push('Username');
-    if (!password) missing.push('Password');
-    if (missing.length > 0) {
-      setError(`Please fill the ${missing.join(', ')}.`);
-      return;
-    }
+    if (!validateAll()) return;
 
     setSubmitting(true);
     try {
-      await login(email.trim(), password);
+      await login(values.email.trim(), values.password);
       navigate('/home');
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.body?.message ?? 'Invalid email or password.');
-      } else {
-        setError('Something went wrong. Please try again.');
-      }
+      applyServerError(err, 'Sign-in failed. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -60,38 +63,34 @@ export function LoginPage() {
           </div>
 
           <form onSubmit={onSubmit} noValidate className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[#1a2e52]">
-                Username <span className="text-red-300">*</span>
-              </label>
-              <input
-                type="email"
-                placeholder="Username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="username"
-                className="w-full rounded-full border-0 bg-white/80 px-5 py-3 text-sm text-slate-700 placeholder-slate-400 shadow-inner outline-none focus:ring-2 focus:ring-white/70"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[#1a2e52]">
-                Password <span className="text-red-300">*</span>
-              </label>
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                className="w-full rounded-full border-0 bg-white/80 px-5 py-3 text-sm text-slate-700 placeholder-slate-400 shadow-inner outline-none focus:ring-2 focus:ring-white/70"
-              />
-            </div>
+            <FormField
+              label="Email"
+              type="email"
+              value={values.email}
+              onChange={(v) => setValue('email', v)}
+              onBlur={() => blur('email')}
+              error={errors.email}
+              touched={touched.email}
+              autoComplete="username"
+              placeholder="name@example.com"
+              required
+              pill
+            />
+            <FormField
+              label="Password"
+              type="password"
+              value={values.password}
+              onChange={(v) => setValue('password', v)}
+              onBlur={() => blur('password')}
+              error={errors.password}
+              touched={touched.password}
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              required
+              pill
+            />
 
-            {error && (
-              <p role="alert" className="rounded-xl bg-red-100/80 px-4 py-2 text-center text-xs text-red-700">
-                {error}
-              </p>
-            )}
+            <FormErrorSummary message={formError} />
 
             <div className="text-right">
               <button

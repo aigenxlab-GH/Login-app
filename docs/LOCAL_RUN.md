@@ -14,8 +14,14 @@ The following variables must be set before starting the application:
 | `DATABASE_URL` | yes | JDBC URL — e.g. `jdbc:postgresql://<host>:6543/postgres?sslmode=require` |
 | `DATABASE_USERNAME` | yes | Postgres username — e.g. `postgres.<project-ref>` |
 | `DATABASE_PASSWORD` | yes | Postgres password |
+| `AUTH_PASSWORD_PEPPER` | **yes** | Long random string used by Argon2id. Generate once with `openssl rand -hex 32` and **never change it** — every existing user's password hash will become unverifiable. |
 | `PORT` | no | Server port (default **8085**) |
 | `COOKIE_SECURE` | no | `true` for HTTPS production; `false` locally |
+
+> **The pepper is critical**: every JAR run must be supplied the **same**
+> pepper. If you start the JAR without it (or with a different value),
+> existing users will all see "Email or password is incorrect" because
+> their stored Argon2id hashes can no longer be verified.
 
 Get the JDBC URL from:
 **Supabase Dashboard → Project → Settings → Database → Connection string → URI → JDBC**
@@ -35,7 +41,8 @@ cd backend
 .\mvnw.cmd spring-boot:run `
   "--spring.datasource.url=jdbc:postgresql://<host>:<port>/<db>?sslmode=require" `
   "--spring.datasource.username=postgres.<ref>" `
-  "--spring.datasource.password=<password>"
+  "--spring.datasource.password=<password>" `
+  "--auth.password.pepper=<long-random-string>"
 ```
 
 Wait for: `Started LoginAppApplication` in the console (~15–30 s).
@@ -64,11 +71,12 @@ One process, one port — identical to what runs in production.
 cd backend
 .\mvnw.cmd clean package
 
-# Step 2: start with DB credentials as Spring args
+# Step 2: start with DB credentials AND pepper as Spring args
 java -jar target\login-app.jar `
   "--spring.datasource.url=jdbc:postgresql://<host>:<port>/<db>?sslmode=require" `
   "--spring.datasource.username=postgres.<ref>" `
-  "--spring.datasource.password=<password>"
+  "--spring.datasource.password=<password>" `
+  "--auth.password.pepper=<long-random-string>"
 ```
 
 **Open:** http://localhost:8085
@@ -83,7 +91,8 @@ java -jar target\login-app.jar `
 java -jar C:\AIGenXLab\Projects\Login-app\backend\target\login-app.jar `
   "--spring.datasource.url=..." `
   "--spring.datasource.username=..." `
-  "--spring.datasource.password=..."
+  "--spring.datasource.password=..." `
+  "--auth.password.pepper=..."
 ```
 
 > **Note:** Always use the **absolute path** to the JAR when not `cd`-ing into
@@ -94,9 +103,9 @@ java -jar C:\AIGenXLab\Projects\Login-app\backend\target\login-app.jar `
 ## Flyway Migrations
 
 Flyway runs automatically on every startup and applies any pending migrations
-from `backend/src/main/resources/db/migration/`. Current migrations: **V1–V7**.
+from `backend/src/main/resources/db/migration/`. Current migrations: **V1–V8**.
 
-If the DB has been wiped or recreated, all 7 migrations will run on first startup.
+If the DB has been wiped or recreated, all 8 migrations will run on first startup.
 **No manual SQL is needed.**
 
 ---
@@ -160,6 +169,33 @@ netstat -ano | findstr :8085
 taskkill /PID <PID> /F
 ```
 
+### "Email or password is incorrect" for a user that *does* exist
+
+If `EMAIL_ALREADY_EXISTS` confirms the account is in the DB but login keeps
+failing for the right password, the running JAR is using a **different
+pepper** than the one used when the account was created. Two common causes:
+
+1. The JAR was started without `--auth.password.pepper=...` (or
+   `AUTH_PASSWORD_PEPPER=...`) and is picking up an empty/different value
+   from the parent shell's env.
+2. You changed `AUTH_PASSWORD_PEPPER` in `.env` since the user signed up.
+
+**Fix** — restart the JAR explicitly passing the same pepper used at signup:
+
+```powershell
+java -jar target\login-app.jar `
+  "--spring.datasource.url=..." `
+  "--spring.datasource.username=..." `
+  "--spring.datasource.password=..." `
+  "--auth.password.pepper=$pepper_from_env"
+```
+
+If you've genuinely lost the original pepper, the only path forward is to
+wipe the database (add a new Flyway migration `V{N}__truncate_all.sql`
+that does `DELETE FROM app_sessions; DELETE FROM app_users;`), restart, and
+sign up fresh. There is no recovery without the original pepper — that's
+the whole point of a pepper.
+
 ### Spring Boot fails to start — database errors
 
 ```
@@ -167,6 +203,12 @@ Could not resolve placeholder 'spring.datasource.url'
 ```
 The DB credentials were not passed. Pass them as `--spring.datasource.*` args
 after the JAR path (see examples above).
+
+```
+Could not resolve placeholder 'AUTH_PASSWORD_PEPPER'
+```
+You forgot `--auth.password.pepper=...`. Pass it as a Spring arg, or set the
+`AUTH_PASSWORD_PEPPER` env var before launching the JAR.
 
 ```
 Connection refused / FATAL: password authentication failed

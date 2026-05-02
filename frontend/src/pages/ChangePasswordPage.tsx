@@ -1,17 +1,19 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../api/client';
 import { changePassword } from '../api/auth';
 import { PageShell } from '../components/PageShell';
+import { FormField, FormErrorSummary } from '../components/FormField';
+import { useFormValidation } from '../lib/useFormValidation';
+import { email, firstError, maxLength, minLength, required } from '../lib/validation';
 
-interface FormState {
+interface ChangePwValues {
   email: string;
   oldPassword: string;
   newPassword: string;
   confirmNewPassword: string;
 }
 
-const initial: FormState = {
+const initial: ChangePwValues = {
   email: '',
   oldPassword: '',
   newPassword: '',
@@ -20,65 +22,36 @@ const initial: FormState = {
 
 export function ChangePasswordPage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState<FormState>(initial);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [generalError, setGeneralError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  function update<K extends keyof FormState>(key: K, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
+  const {
+    values, errors, touched, formError,
+    setValue, blur, validateAll, applyServerError,
+  } = useFormValidation<ChangePwValues>(initial, {
+    email: (v) => firstError(v, required('Email'), email()),
+    oldPassword: (v) => required('Current Password')(v),
+    newPassword: (v, all) => firstError(v,
+      required('New Password'),
+      minLength(8, 'New Password'),
+      maxLength(200, 'New Password'),
+    ) ?? (v === all.oldPassword
+        ? 'New password must be different from your current password.'
+        : null),
+    confirmNewPassword: (v, all) => firstError(v,
+      required('Confirm New Password'),
+    ) ?? (v !== all.newPassword ? 'Passwords do not match.' : null),
+  });
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setGeneralError(null);
+    if (!validateAll()) return;
 
-    const local: Record<string, string> = {};
-
-    // Empty field checks
-    if (!form.email.trim()) local.email = 'Required';
-    if (!form.oldPassword) local.oldPassword = 'Required';
-    if (!form.newPassword) local.newPassword = 'Required';
-    if (!form.confirmNewPassword) local.confirmNewPassword = 'Required';
-
-    const fieldLabels: Record<string, string> = {
-      email: 'Email',
-      oldPassword: 'Old Password',
-      newPassword: 'New Password',
-      confirmNewPassword: 'Confirm New Password',
-    };
-    const missing = Object.keys(local).map((k) => fieldLabels[k]);
-    if (missing.length > 0) {
-      setFieldErrors(local);
-      setGeneralError(`Please fill the ${missing.join(', ')}.`);
-      return;
-    }
-
-    // Business rule checks
-    if (form.newPassword.length < 8) {
-      local.newPassword = 'New password must be at least 8 characters.';
-    }
-    if (form.newPassword !== form.confirmNewPassword) {
-      local.confirmNewPassword = 'Passwords do not match.';
-    }
-    if (Object.keys(local).length > 0) {
-      setFieldErrors(local);
-      return;
-    }
-
-    setFieldErrors({});
     setSubmitting(true);
     try {
-      await changePassword(form);
+      await changePassword(values);
       navigate('/?msg=' + encodeURIComponent('Password successfully changed'));
     } catch (err) {
-      if (err instanceof ApiError && err.body?.details) {
-        setFieldErrors(err.body.details);
-      } else if (err instanceof ApiError) {
-        setGeneralError(err.body?.message ?? 'Could not change password. Please try again.');
-      } else {
-        setGeneralError('Something went wrong. Please try again.');
-      }
+      applyServerError(err, 'Could not change password. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -98,24 +71,55 @@ export function ChangePasswordPage() {
           className="rounded-3xl bg-white/30 p-8 shadow-xl backdrop-blur-md ring-1 ring-white/50"
         >
           <div className="space-y-5">
-            <Field label="Email" type="email" value={form.email} onChange={(v) => update('email', v)}
-              error={fieldErrors.email} autoComplete="email" required />
-            <Field label="Old Password" type="password" value={form.oldPassword}
-              onChange={(v) => update('oldPassword', v)} error={fieldErrors.oldPassword}
-              autoComplete="current-password" required />
-            <Field label="New Password" type="password" value={form.newPassword}
-              onChange={(v) => update('newPassword', v)} error={fieldErrors.newPassword}
-              autoComplete="new-password" required />
-            <Field label="Confirm New Password" type="password" value={form.confirmNewPassword}
-              onChange={(v) => update('confirmNewPassword', v)} error={fieldErrors.confirmNewPassword}
-              autoComplete="new-password" required />
+            <FormField
+              label="Email"
+              type="email"
+              value={values.email}
+              onChange={(v) => setValue('email', v)}
+              onBlur={() => blur('email')}
+              error={errors.email}
+              touched={touched.email}
+              autoComplete="email"
+              placeholder="name@example.com"
+              required
+            />
+            <FormField
+              label="Current Password"
+              type="password"
+              value={values.oldPassword}
+              onChange={(v) => setValue('oldPassword', v)}
+              onBlur={() => blur('oldPassword')}
+              error={errors.oldPassword}
+              touched={touched.oldPassword}
+              autoComplete="current-password"
+              required
+            />
+            <FormField
+              label="New Password"
+              type="password"
+              value={values.newPassword}
+              onChange={(v) => setValue('newPassword', v)}
+              onBlur={() => blur('newPassword')}
+              error={errors.newPassword}
+              touched={touched.newPassword}
+              autoComplete="new-password"
+              helperText="At least 8 characters; must differ from current password."
+              required
+            />
+            <FormField
+              label="Confirm New Password"
+              type="password"
+              value={values.confirmNewPassword}
+              onChange={(v) => setValue('confirmNewPassword', v)}
+              onBlur={() => blur('confirmNewPassword')}
+              error={errors.confirmNewPassword}
+              touched={touched.confirmNewPassword}
+              autoComplete="new-password"
+              required
+            />
           </div>
 
-          {generalError && (
-            <p role="alert" className="mt-5 rounded-xl bg-red-100/80 px-4 py-2 text-center text-xs text-red-700">
-              {generalError}
-            </p>
-          )}
+          <FormErrorSummary message={formError} />
 
           <button
             type="submit"
@@ -133,35 +137,5 @@ export function ChangePasswordPage() {
         </form>
       </div>
     </PageShell>
-  );
-}
-
-interface FieldProps {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  error?: string;
-  autoComplete?: string;
-  required?: boolean;
-}
-
-function Field({ label, value, onChange, type = 'text', error, autoComplete, required }: FieldProps) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-[#1a2e52]">
-        {label} {required && <span className="text-red-300">*</span>}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete={autoComplete}
-        className={`w-full rounded-full border-0 bg-white/80 px-5 py-2.5 text-sm text-slate-700 placeholder-slate-400 shadow-inner outline-none focus:ring-2 ${
-          error ? 'ring-2 ring-red-400' : 'focus:ring-white/70'
-        }`}
-      />
-      {error && <span className="mt-1 block text-xs text-red-200">{error}</span>}
-    </label>
   );
 }

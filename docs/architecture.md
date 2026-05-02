@@ -16,10 +16,12 @@ matters at this application's scale.
 
 ---
 
-## Auth: Custom Table + Spring Security + BCrypt
+## Auth: Custom Table + Spring Security + Argon2id (with pepper)
 
-**Decision**: Use a custom `app_users` table with BCrypt passwords and a
-custom `app_sessions` table for server-side session management. **Not** Supabase Auth.
+**Decision**: Use a custom `app_users` table with **Argon2id**-hashed
+passwords (via `de.mkammerer:argon2-jvm`), a server-side **pepper** appended
+to every password before hashing, and a custom `app_sessions` table for
+server-side session management. **Not** Supabase Auth, **not** BCrypt.
 
 **Rationale**:
 - Supabase Auth adds an SDK dependency and another point of failure.
@@ -27,8 +29,20 @@ custom `app_sessions` table for server-side session management. **Not** Supabase
   No token refresh logic, no JWT key rotation.
 - The `SESSION` cookie is `HttpOnly` (no XSS exposure) and `SameSite=Lax`
   (blocks cross-site request forgery from third-party sites).
-- BCrypt is well-proven for password hashing and is natively supported by
-  Spring Security.
+- **Argon2id** (OWASP recommendation since 2017) is memory-hard and resists
+  GPU/ASIC cracking better than BCrypt. Parameters: 3 iterations, 64 MB
+  memory, parallelism 1 — OWASP minimum.
+- The **pepper** is a server-side secret stored in `AUTH_PASSWORD_PEPPER`
+  env var. It is concatenated with the raw password before hashing, so a
+  leaked database alone is useless to an offline attacker who lacks the
+  pepper.
+
+**Operational rule**: the pepper **must remain stable for the life of the
+deployment**. Changing it (or starting the JAR without it) invalidates every
+stored password hash. Always pass `--auth.password.pepper=<value>` (or set
+`AUTH_PASSWORD_PEPPER`) when starting the JAR. If the pepper is ever
+genuinely lost, every user must reset their password (no recovery is possible
+without the original pepper).
 
 **Session flow**:
 1. `POST /api/auth/login` creates an `app_sessions` row and sets the `SESSION`
@@ -118,6 +132,7 @@ explicit, reviewable, and reproducible.
 | V5 | Truncate all data + add `is_active` column (default false) |
 | V6 | Drop and recreate both tables with `employee_id` (5001–5999) as 2nd column |
 | V7 | Truncate all data — fresh start for testing first-user employee ID flow |
+| V8 | Wipe all data again — clean slate after the V7-era admin account became unusable |
 
 ---
 
@@ -199,6 +214,53 @@ regex is intentionally avoided because it would intercept `/swagger-ui` and
 
 **Registered SPA routes**: `/`, `/home`, `/signup`, `/change-password`,
 `/user/{id}` (user detail page).
+
+---
+
+## Form Validation: Centralized Library + Shared Field Component
+
+**Decision**: All user-facing forms (Login, Signup, Change Password) share a
+single validation pipeline composed of three layers:
+
+1. **`frontend/src/lib/validation.ts`** — pure validator functions
+   (`required(label)`, `email()`, `minLength(n, label)`, `maxLength(n, label)`,
+   `matches(other, otherLabel)`, `pattern(re, message)`) plus
+   `mapBackendError(code, fallback)` that translates backend error codes
+   (`EMAIL_ALREADY_EXISTS`, `INVALID_CREDENTIALS`, `OLD_PASSWORD_INVALID`,
+   `ACCOUNT_LOCKED`, `ACCOUNT_NOT_ACTIVATED`, `VALIDATION_FAILED`, etc.)
+   into user-friendly messages and field targets.
+
+2. **`frontend/src/lib/useFormValidation.ts`** — generic React hook owning
+   `values`, `errors`, `touched`, `formError`. Exposes `setValue`, `blur`,
+   `validateAll`, `applyServerError`, `reset`. The hook is the single
+   source of truth for a form's UX state — pages should never manage their
+   own field-error maps.
+
+3. **`frontend/src/components/FormField.tsx`** — presentational
+   `FormField` / `FormSelect` / `FormErrorSummary`. Handles ARIA wiring
+   (`aria-invalid`, `aria-describedby`, `aria-required`), red ring on
+   error, helper text, inline error icon. Pure props in/out — no state.
+
+**Backend mirror**: every DTO field carries a Jakarta validation annotation
+with a custom `message`. The frontend validators duplicate those length and
+format constraints exactly so client and server agree. When the backend
+returns `VALIDATION_FAILED` with a `details` map, `applyServerError`
+populates the per-field errors directly without the page needing to know
+the field names.
+
+**UX rationale** (matches polished business apps):
+
+- Errors hidden until the user has touched the field or attempted submit
+  → no "you have errors" before they've typed anything.
+- Live-clearing as soon as input becomes valid → instant positive feedback.
+- Submit always validates and reveals everything → no hidden errors.
+- Server-side errors land on the right field, with a form-level summary
+  for cross-cutting failures (lockout, bad credentials).
+
+**Anti-pattern (avoid)**: Per-page ad-hoc validation logic, ad-hoc
+`fieldErrors` maps in `useState`, or repeating the field-by-field
+"required" checks in every form. If you find yourself writing those, you're
+working around the shared infrastructure — extend it instead.
 
 ---
 
